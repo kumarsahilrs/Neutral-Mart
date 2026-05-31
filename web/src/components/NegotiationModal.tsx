@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Loader2, IndianRupee, MessageCircle, CheckCircle, XCircle, Lightbulb } from 'lucide-react';
 import { toast } from 'sonner';
 import { negotiationsApi, aiApi } from '@/lib/api';
@@ -43,6 +43,38 @@ export default function NegotiationModal({ listing, onClose, onAccepted }: Negot
   const [negotiationId, setNegotiationId] = useState('');
   const [rounds, setRounds] = useState<OfferRound[]>([]);
   const [aiSuggestion, setAiSuggestion] = useState<{ price: number; rationale: string } | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll for negotiation updates every 15s when in 'submitted' state
+  useEffect(() => {
+    if (step !== 'submitted' || !negotiationId) return;
+    async function poll() {
+      try {
+        const res = await negotiationsApi.getMyNegotiations();
+        const items = (res.data as unknown as { data: Array<{ id: string; round_count: number; current_price: number; last_offer_by: string; status: string }> })?.data ?? [];
+        const current = items.find((n) => n.id === negotiationId);
+        if (!current) return;
+        if (current.status === 'accepted') {
+          toast.success('Seller accepted your offer! Proceed to checkout.');
+          onAccepted?.(current.current_price, negotiationId);
+          onClose();
+        } else if (current.status === 'rejected') {
+          toast.info('Seller declined your offer.');
+          onClose();
+        } else if (current.round_count > rounds.length) {
+          // New counter offer from seller
+          setRounds(prev => [...prev, {
+            by: 'seller',
+            amount: current.current_price,
+            status: 'pending',
+          }]);
+          toast.info(`Seller made a counter offer: ₹${current.current_price.toLocaleString('en-IN')}`);
+        }
+      } catch { /* non-critical */ }
+    }
+    pollRef.current = setInterval(poll, 15000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [step, negotiationId, rounds.length, onAccepted, onClose]);
 
   async function getAiSuggestion() {
     setAiLoading(true);

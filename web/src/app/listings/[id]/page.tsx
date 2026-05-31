@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import Header from '@/components/Header';
 import MarketingPanel from '@/components/MarketingPanel';
 import NegotiationModal from '@/components/NegotiationModal';
+import AuctionPanel from '@/components/AuctionPanel';
 import { inventoryApi } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 
@@ -273,8 +274,19 @@ export default function ListingDetailPage() {
             )}
           </div>
 
-          {/* Right: Lot Calculator + Order CTA */}
+          {/* Right: Auction / Lot Calculator + Order CTA */}
           <div className="lg:col-span-1 space-y-4">
+            {/* Auction Panel — shown only for auction listings */}
+            {(String(l.price_type) === 'auction' || String(l.pricing_mode) === 'auction') && (
+              <AuctionPanel
+                listingId={String(l.id ?? '')}
+                askingPrice={pricePerUnit}
+                reservePrice={l.auction_reserve_price ? Number(l.auction_reserve_price) : null}
+                auctionEndsAt={l.auction_ends_at ? String(l.auction_ends_at) : null}
+                onLoginRequired={() => router.push('/login')}
+              />
+            )}
+
             {/* Lot Calculator */}
             <div className="card p-6">
               <div className="flex items-center gap-2 mb-5">

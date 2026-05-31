@@ -103,6 +103,7 @@ function ReviewPanel({ submission, onClose, onActionSuccess }: ReviewPanelProps)
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<KycDocument | null>(null);
 
   useEffect(() => {
     setActiveAction(null);
@@ -135,6 +136,52 @@ function ReviewPanel({ submission, onClose, onActionSuccess }: ReviewPanelProps)
 
   return (
     <>
+      {/* Inline Doc Preview Modal */}
+      {previewDoc && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
+          <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700 shrink-0">
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{previewDoc.filename}</p>
+                <p className="text-xs text-gray-500 capitalize">{previewDoc.documentType.replace(/_/g, ' ')}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewDoc.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium"
+                >
+                  <ExternalLink size={12} /> Open in new tab
+                </a>
+                <button
+                  onClick={() => setPreviewDoc(null)}
+                  className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden bg-gray-50 dark:bg-gray-800">
+              {previewDoc.documentType.toLowerCase().includes('pdf') || previewDoc.url.endsWith('.pdf') ? (
+                <iframe
+                  src={previewDoc.url}
+                  className="w-full h-full min-h-[500px]"
+                  title={previewDoc.filename}
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={previewDoc.url}
+                  alt={previewDoc.filename}
+                  className="w-full h-auto max-h-[70vh] object-contain p-4"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Overlay */}
       <div
         className="fixed inset-0 bg-black/40 z-40 transition-opacity"
@@ -206,14 +253,23 @@ function ReviewPanel({ submission, onClose, onActionSuccess }: ReviewPanelProps)
                         </p>
                       </div>
                     </div>
-                    <a
-                      href={doc.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-nm-primary font-medium hover:underline shrink-0 ml-2"
-                    >
-                      View <ExternalLink size={11} />
-                    </a>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      <button
+                        onClick={() => setPreviewDoc(doc)}
+                        className="text-xs text-nm-primary font-medium hover:underline"
+                      >
+                        Preview
+                      </button>
+                      <span className="text-gray-300">|</span>
+                      <a
+                        href={doc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-0.5 text-xs text-gray-500 hover:text-nm-primary"
+                      >
+                        <ExternalLink size={10} />
+                      </a>
+                    </div>
                   </div>
                 ))}
               </div>
