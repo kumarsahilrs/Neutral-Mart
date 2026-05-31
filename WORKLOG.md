@@ -3,6 +3,36 @@
 
 ---
 
+## Session: 2026-05-31 — Sprint 4-7 Continuation
+
+### Built this session
+| File | What |
+|---|---|
+| `web/src/hooks/useAuction.ts` | WebSocket hook — auto-reconnect, live bid events, outbid toast, room join/leave |
+| `web/src/components/AuctionPanel.tsx` | Live auction UI — current bid, countdown, bidder count, quick-bid buttons, anti-sniping label, reserve status, Place Bid |
+| `web/src/app/listings/[id]/page.tsx` | AuctionPanel for auction listings, Watchlist button (save/unsave with API), MarketingPanel auto-opens from `?market=1` |
+| `web/src/app/listings/page.tsx` | Voice search mic (Web Speech API, Hindi + English) |
+| `web/src/app/seller/listings/page.tsx` | AI urgency score column with colour-coded progress bar |
+| `web/src/app/orders/page.tsx` | "Market Again" button (→ listing with ?market=1), "Reorder" button on completed orders |
+| `web/src/components/NegotiationModal.tsx` | 15s polling for counter-offers, auto-close on accept/reject |
+| `admin/src/app/(dashboard)/kyc/page.tsx` | Inline doc preview modal — PDF iframe + image viewer, Preview + external link |
+| `web/src/app/seller/listings/new/page.tsx` | AI prompt panel (step 1) — conversational input, AI pre-fills form, sector auto-detection |
+| `web/src/app/page.tsx` | AI match banner for logged-in buyers |
+| `BUILDPLAN.md` | Full 16-sprint locked plan |
+
+### Discoveries (already built, assumed missing)
+- Bulk actions in seller listings ✅ (`selectedIds`, `bulkAction`, `bulkChangePrice`)
+- Save search on listings page ✅
+- Flash sale strip with live countdown ✅ (`FlashSaleCard` with `setInterval`)
+- Order tracking 7-stage timeline ✅ (desktop horizontal + mobile vertical)
+- KYC review panel ✅ (approve/reject with reason/request more docs)
+- Seller analytics with KPI cards + revenue charts ✅
+- Seller dashboard with aging alerts + quick actions ✅
+
+### Build status update: ~82% complete
+
+---
+
 ## Session: 2026-05-31 — Sprint Build (Heavy)
 
 ### What was discovered (previously assumed missing but already built)

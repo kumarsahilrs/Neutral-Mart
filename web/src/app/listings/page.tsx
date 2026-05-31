@@ -328,8 +328,34 @@ export default function ListingsPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search listings..."
-              className="input-field pl-9 pr-4"
+              className="input-field pl-9 pr-12"
             />
+            {/* Voice search mic */}
+            <button
+              type="button"
+              title="Voice search"
+              onClick={() => {
+                if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                  toast.error('Voice search not supported in this browser');
+                  return;
+                }
+                const SR = (window as unknown as { SpeechRecognition?: new() => SpeechRecognition; webkitSpeechRecognition?: new() => SpeechRecognition }).SpeechRecognition
+                  ?? (window as unknown as { webkitSpeechRecognition?: new() => SpeechRecognition }).webkitSpeechRecognition;
+                if (!SR) return;
+                const recognition = new SR();
+                recognition.lang = 'hi-IN';
+                recognition.interimResults = false;
+                recognition.onresult = (e: SpeechRecognitionEvent) => {
+                  const transcript = e.results[0][0].transcript;
+                  setSearch(transcript);
+                  applyFilters();
+                };
+                recognition.start();
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-primary-600 transition-colors"
+            >
+              🎙️
+            </button>
           </form>
           <button
             onClick={() => setShowFilters((v) => !v)}

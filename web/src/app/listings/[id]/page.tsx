@@ -6,14 +6,14 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft, Package, MapPin, Tag, IndianRupee, ShoppingCart,
-  CheckCircle, AlertCircle, Loader2, Calculator, BadgeCheck, Zap, Megaphone, MessageCircle,
+  CheckCircle, AlertCircle, Loader2, Calculator, BadgeCheck, Zap, Megaphone, MessageCircle, Bookmark, BookmarkCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Header from '@/components/Header';
 import MarketingPanel from '@/components/MarketingPanel';
 import NegotiationModal from '@/components/NegotiationModal';
 import AuctionPanel from '@/components/AuctionPanel';
-import { inventoryApi } from '@/lib/api';
+import api, { inventoryApi } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 
 const INDIAN_STATES = [
@@ -28,10 +28,33 @@ const INDIAN_STATES = [
 export default function ListingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
 
   const [calcQuantity, setCalcQuantity] = useState(1);
-  const [showMarketing, setShowMarketing] = useState(false);
+  const [showMarketing, setShowMarketing] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('market') === '1';
+  });
   const [showNegotiation, setShowNegotiation] = useState(false);
+  const [watchlisted, setWatchlisted] = useState(false);
+  const [watchlistLoading, setWatchlistLoading] = useState(false);
+
+  async function handleWatchlist() {
+    if (!isAuthenticated()) { toast.error('Login to save listings'); router.push('/login'); return; }
+    setWatchlistLoading(true);
+    try {
+      if (watchlisted) {
+        await api.delete(`/buyer/watchlist/${String(l.id)}`);
+        setWatchlisted(false);
+        toast.success('Removed from watchlist');
+      } else {
+        await api.post('/buyer/watchlist', { listing_id: String(l.id) });
+        setWatchlisted(true);
+        toast.success('Saved to watchlist');
+      }
+    } catch { toast.error('Could not update watchlist'); }
+    finally { setWatchlistLoading(false); }
+  }
 
   const { data: listing, isLoading, isError } = useQuery({
     queryKey: ['listing', id],
@@ -374,14 +397,30 @@ export default function ListingDetailPage() {
                 GST invoice will be provided with your order
               </p>
 
-              {/* AI Marketing Button */}
-              <button
-                onClick={() => setShowMarketing(true)}
-                className="w-full mt-3 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border-2 border-nm-primary/30 bg-nm-primary-pale hover:bg-nm-primary/10 text-nm-primary-dark font-semibold text-sm transition-all"
-              >
-                <Megaphone className="w-4 h-4" />
-                Generate Marketing Content
-              </button>
+              {/* Watchlist + Marketing buttons */}
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={handleWatchlist}
+                  disabled={watchlistLoading}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                    watchlisted
+                      ? 'border-amber-300 bg-amber-50 text-amber-700'
+                      : 'border-nm-border dark:border-nm-border-dark hover:border-nm-primary/40 text-nm-text-muted dark:text-nm-text-dark-muted'
+                  }`}
+                >
+                  {watchlisted
+                    ? <><BookmarkCheck className="w-4 h-4" /> Saved</>
+                    : <><Bookmark className="w-4 h-4" /> Watchlist</>
+                  }
+                </button>
+                <button
+                  onClick={() => setShowMarketing(true)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border-2 border-nm-primary/30 bg-nm-primary-pale hover:bg-nm-primary/10 text-nm-primary-dark font-semibold text-sm transition-all"
+                >
+                  <Megaphone className="w-4 h-4" />
+                  Market It
+                </button>
+              </div>
               <p className="text-xs text-center text-nm-text-muted mt-1">
                 AI captions for WhatsApp, Instagram &amp; more
               </p>

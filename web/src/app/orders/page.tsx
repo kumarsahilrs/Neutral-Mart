@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   ShoppingCart, Package, Loader2, Search, AlertCircle,
   ChevronRight, ChevronLeft, CheckCircle, Clock, Truck,
-  XCircle, IndianRupee, Eye, ExternalLink
+  XCircle, IndianRupee, Eye, ExternalLink, Megaphone, RefreshCw, Download
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Header from '@/components/Header';
@@ -307,6 +307,30 @@ export default function OrdersPage() {
                         <Eye className="w-3 h-3" />
                         View Details
                       </Link>
+
+                      {/* Market Again — available for all completed/delivered orders */}
+                      {(order.status === 'completed' || order.status === 'delivered') && order.listing_id && (
+                        <Link
+                          href={`/listings/${order.listing_id}?market=1`}
+                          className="flex items-center gap-1 text-xs font-medium text-nm-primary hover:text-nm-primary-dark px-2.5 py-1 rounded-lg bg-nm-primary-pale hover:bg-nm-primary/10 border border-nm-primary/20 transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Megaphone className="w-3 h-3" />
+                          Market Again
+                        </Link>
+                      )}
+
+                      {/* Reorder */}
+                      {order.status === 'completed' && order.listing_id && (
+                        <Link
+                          href={`/checkout?listing_id=${order.listing_id}&quantity=${order.quantity}`}
+                          className="flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                          Reorder
+                        </Link>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -36,6 +36,8 @@ interface SellerListing {
   view_count: number;
   watchlist_count: number;
   created_at: string;
+  ai_urgency_score?: number;
+  sale_velocity_7d?: number;
 }
 
 interface ListingPerformance {
@@ -507,6 +509,7 @@ export default function SellerListingsPage() {
                   <th className="text-left px-4 py-3">
                     <span className="flex items-center gap-1"><Clock className="w-3 h-3" />Days</span>
                   </th>
+                  <th className="text-left px-4 py-3">AI Urgency</th>
                   <th className="text-left px-4 py-3">Actions</th>
                 </tr>
               </thead>
@@ -559,6 +562,23 @@ export default function SellerListingsPage() {
                         <td className="px-4 py-3 text-gray-600">{(listing.view_count ?? 0).toLocaleString('en-IN')}</td>
                         <td className="px-4 py-3 text-gray-600">{(listing.watchlist_count ?? 0).toLocaleString('en-IN')}</td>
                         <td className="px-4 py-3 text-gray-600">{daysSince(listing.created_at)}d</td>
+                        <td className="px-4 py-3">
+                          {listing.ai_urgency_score !== undefined ? (
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${listing.ai_urgency_score >= 0.75 ? 'bg-red-500' : listing.ai_urgency_score >= 0.5 ? 'bg-amber-500' : 'bg-green-500'}`}
+                                  style={{ width: `${Math.round(listing.ai_urgency_score * 100)}%` }}
+                                />
+                              </div>
+                              <span className={`text-xs font-semibold ${listing.ai_urgency_score >= 0.75 ? 'text-red-600' : listing.ai_urgency_score >= 0.5 ? 'text-amber-600' : 'text-green-600'}`}>
+                                {Math.round(listing.ai_urgency_score * 100)}%
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1 flex-wrap">
                             <Link
