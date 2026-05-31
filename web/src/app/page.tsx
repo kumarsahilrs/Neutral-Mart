@@ -3,12 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, ArrowRight, TrendingDown, Package, Layers, ChevronRight, Loader2 } from 'lucide-react';
+import { Search, ArrowRight, TrendingDown, Package, Layers, ChevronRight, Loader2, Sparkles } from 'lucide-react';
 import Header from '@/components/Header';
 import ListingCard from '@/components/ListingCard';
 import FlashSaleCard from '@/components/FlashSaleCard';
 import SectorPill from '@/components/SectorPill';
 import { inventoryApi, type Listing, type Sector } from '@/lib/api';
+import { isAuthenticated, getUser } from '@/lib/auth';
 
 const PAGE_LIMIT = 12;
 
@@ -221,6 +222,31 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* AI Match Banner — shown to logged-in buyers */}
+      {isAuthenticated() && getUser()?.role === 'buyer' && (
+        <section className="bg-nm-primary-pale border-b border-nm-primary/20 py-3 px-4">
+          <div className="max-w-7xl mx-auto">
+            <Link
+              href="/listings"
+              className="flex items-center gap-3 group"
+            >
+              <div className="w-8 h-8 rounded-full bg-nm-primary flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-4 h-4 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-nm-primary-dark">
+                  ✨ Deals matched to your profile today
+                </p>
+                <p className="text-xs text-nm-primary/70">
+                  Based on your sector interests and purchase history
+                </p>
+              </div>
+              <ArrowRight className="w-4 h-4 text-nm-primary group-hover:translate-x-1 transition-transform flex-shrink-0" />
+            </Link>
+          </div>
+        </section>
+      )}
 
       {/* CTA Banner */}
       <section className="bg-accent-600 text-white py-4 px-4">

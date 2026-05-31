@@ -15,9 +15,11 @@ import {
   RefreshCw,
   Star,
   Zap,
+  Sparkles,
+  Mic,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import api from '@/lib/api';
+import api, { aiApi } from '@/lib/api';
 import { inventoryApi, type Sector } from '@/lib/api';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -192,6 +194,63 @@ export default function NewListingPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
+
+  // ── AI Listing Prompt ─────────────────────────────────────────────────────────
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResponse, setAiResponse] = useState('');
+  const [aiConversationHistory, setAiConversationHistory] = useState<Array<{ role: string; content: string }>>([]);
+  const [showAiPanel, setShowAiPanel] = useState(true);
+
+  async function handleAiPrompt() {
+    if (!aiPrompt.trim()) return;
+    setAiLoading(true);
+    try {
+      const res = await aiApi.enhanceListing(aiPrompt, aiConversationHistory);
+      const data = res.data as unknown as {
+        conversational_response?: string;
+        extracted_fields?: Record<string, unknown>;
+        detected_sector?: string;
+        questions?: string[];
+      };
+      const extracted = data.extracted_fields ?? {};
+      const response = data.conversational_response ?? '';
+
+      // Pre-fill form fields from AI extraction
+      merge({
+        title: (extracted.title as string) || (extracted.product_name as string) || draft.title,
+        description: (extracted.description as string) || draft.description,
+        dead_stock_type: (extracted.dead_stock_type as string) || draft.dead_stock_type,
+        condition_grade: (extracted.condition_grade as string) || draft.condition_grade,
+        total_quantity: (extracted.quantity as string) || (extracted.total_quantity as string) || draft.total_quantity,
+        unit: (extracted.unit as string) || draft.unit,
+        asking_price: (extracted.asking_price as string) || (extracted.price as string) || draft.asking_price,
+        mrp: (extracted.mrp as string) || draft.mrp,
+      });
+
+      setAiResponse(response);
+      setAiConversationHistory(prev => [
+        ...prev,
+        { role: 'user', content: aiPrompt },
+        { role: 'assistant', content: response },
+      ]);
+      setAiPrompt('');
+
+      if (data.detected_sector && sectors.length > 0) {
+        const matched = sectors.find(s =>
+          s.slug?.toLowerCase() === (data.detected_sector as string)?.toLowerCase() ||
+          s.name?.toLowerCase().includes((data.detected_sector as string)?.toLowerCase())
+        );
+        if (matched) merge({ sector_id: matched.id });
+      }
+
+      toast.success('AI extracted listing details. Review and confirm below.');
+    } catch {
+      toast.error('AI service unavailable. Fill in the form manually.');
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   function merge(partial: Partial<ListingDraft>) {
     setDraft((prev) => ({ ...prev, ...partial }));
@@ -509,6 +568,78 @@ export default function NewListingPage() {
         {step === 0 && (
           <div className="space-y-5">
             <h2 className="text-base font-semibold text-gray-900">Basic Information</h2>
+
+            {/* AI Prompt Panel */}
+            {showAiPanel && (
+              <div className="rounded-xl border-2 border-nm-primary/30 bg-nm-primary-pale overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-nm-primary/20">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-nm-primary" />
+                    <span className="text-sm font-semibold text-nm-primary-dark">AI Listing Assistant</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAiPanel(false)}
+                    className="text-xs text-nm-primary/60 hover:text-nm-primary"
+                  >
+                    Fill manually instead
+                  </button>
+                </div>
+                <div className="p-4 space-y-3">
+                  <p className="text-xs text-nm-primary/70">
+                    Describe your dead stock in Hindi or English — AI will fill the form for you
+                  </p>
+                  {aiConversationHistory.length > 0 && (
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {aiConversationHistory.map((msg, i) => (
+                        <div key={i} className={`text-xs rounded-lg px-3 py-2 ${msg.role === 'user' ? 'bg-nm-primary text-white ml-8' : 'bg-white text-nm-text-muted mr-8'}`}>
+                          {msg.content}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <textarea
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && e.metaKey) handleAiPrompt(); }}
+                      placeholder={aiConversationHistory.length === 0
+                        ? "e.g. Mere paas 500 shirts hain size M L XL, brand Levis, Surat godown mein, 3 saal se nahi bike..."
+                        : "Reply to AI question..."}
+                      className="flex-1 nm-input resize-none text-sm"
+                      rows={3}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAiPrompt}
+                    disabled={aiLoading || !aiPrompt.trim()}
+                    className="nm-btn-primary w-full flex items-center justify-center gap-2 py-2.5 disabled:opacity-60"
+                  >
+                    {aiLoading ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> AI is analyzing...</>
+                    ) : (
+                      <><Sparkles className="w-4 h-4" /> {aiConversationHistory.length === 0 ? 'Generate Listing with AI' : 'Send'}</>
+                    )}
+                  </button>
+                  {aiResponse && (
+                    <div className="text-xs text-nm-primary-dark bg-white rounded-lg p-3 border border-nm-primary/20">
+                      <span className="font-semibold">AI: </span>{aiResponse}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {!showAiPanel && (
+              <button
+                type="button"
+                onClick={() => setShowAiPanel(true)}
+                className="w-full flex items-center justify-center gap-2 py-2 text-sm text-nm-primary border border-dashed border-nm-primary/40 rounded-xl hover:bg-nm-primary-pale transition-colors"
+              >
+                <Sparkles className="w-4 h-4" /> Use AI to fill this form
+              </button>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
