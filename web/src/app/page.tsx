@@ -1,35 +1,155 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
-import { Search, ArrowRight, TrendingDown, Package, Layers, ChevronRight } from 'lucide-react';
+import { Search, ArrowRight, TrendingDown, Package, Layers, ChevronRight, Loader2 } from 'lucide-react';
 import Header from '@/components/Header';
 import ListingCard from '@/components/ListingCard';
+import FlashSaleCard from '@/components/FlashSaleCard';
+import SectorPill from '@/components/SectorPill';
 import { inventoryApi, type Listing, type Sector } from '@/lib/api';
+
+const PAGE_LIMIT = 12;
 
 export default function HomePage() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { data: featuredData } = useQuery({
-    queryKey: ['listings', 'featured'],
-    queryFn: () => inventoryApi.getListings({ featured: true, limit: 8 }),
-    // API returns { success, data: { rows: [...], total } }
-    select: (res) => (res.data as unknown as { data: { rows: Listing[] } })?.data ?? null,
-  });
+  // ── Sectors ─────────────────────────────────────────────────────────────────
+  const [sectors, setSectors] = useState<Sector[]>([]);
+  // activeSector stores the sector's id for pill comparison; activeSectorSlug is passed to the API
+  const [activeSectorId, setActiveSectorId] = useState<string | null>(null);
+  const [activeSectorSlug, setActiveSectorSlug] = useState<string | null>(null);
 
-  const { data: sectorsData } = useQuery({
-    queryKey: ['sectors'],
-    queryFn: () => inventoryApi.getSectors(),
-    // API returns { success, data: [...sectors] }
-    select: (res) => (res.data as unknown as { data: Sector[] })?.data ?? [],
-  });
+  // ── Flash sales ─────────────────────────────────────────────────────────────
+  const [flashSales, setFlashSales] = useState<Listing[]>([]);
 
-  const listings: Listing[] = (featuredData?.rows ?? []) as Listing[];
-  const sectors: Sector[] = Array.isArray(sectorsData) ? sectorsData : [];
+  // ── Deal feed (load-more) ────────────────────────────────────────────────────
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
 
+  // ── Recently viewed ──────────────────────────────────────────────────────────
+  const [recentlyViewed, setRecentlyViewed] = useState<Listing[]>([]);
+
+  // track if we've already initialised the feed for a given activeSector
+  // sentinel value 'UNINIT' means we haven't run the initial fetch yet
+  const activeSectorRef = useRef<string>('UNINIT');
+
+  // ── Load sectors ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    inventoryApi
+      .getSectors()
+      .then((res) => {
+        const raw = (res.data as unknown as { data: Sector[] })?.data ?? res.data;
+        if (Array.isArray(raw)) setSectors(raw);
+      })
+      .catch(() => {});
+  }, []);
+
+  // ── Load flash sales ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    inventoryApi
+      .getListings({ limit: 10, price_type: 'flash_sale' } as Parameters<typeof inventoryApi.getListings>[0])
+      .then((res) => {
+        const raw = (res.data as unknown as { data: { rows: Listing[] } })?.data;
+        const rows: Listing[] = raw?.rows ?? [];
+        // Keep only listings that have a flash_sale_ends_at field
+        setFlashSales(
+          rows.filter(
+            (l) => !!(l as unknown as Record<string, unknown>).flash_sale_ends_at
+          )
+        );
+      })
+      .catch(() => {});
+  }, []);
+
+  // ── Load recently viewed ─────────────────────────────────────────────────────
+  useEffect(() => {
+    try {
+      const ids: string[] = JSON.parse(
+        localStorage.getItem('nm_recently_viewed') || '[]'
+      );
+      if (ids.length > 0) {
+        const limited = ids.slice(0, 8);
+        // Fetch each individually and collect results
+        Promise.allSettled(
+          limited.map((id) =>
+            inventoryApi
+              .getListing(id)
+              .then((res) => (res.data as unknown as { data: Listing })?.data ?? (res.data as unknown as Listing))
+          )
+        ).then((results) => {
+          const found: Listing[] = results
+            .filter((r): r is PromiseFulfilledResult<Listing> => r.status === 'fulfilled' && !!r.value)
+            .map((r) => r.value);
+          setRecentlyViewed(found);
+        });
+      }
+    } catch {
+      // localStorage not available (SSR or private mode)
+    }
+  }, []);
+
+  // ── Fetch a page of the deal feed ────────────────────────────────────────────
+  const fetchPage = useCallback(
+    async (pageNum: number, sectorId: string | null, append: boolean) => {
+      if (pageNum === 1 && !append) setInitialLoading(true);
+      else setLoadingMore(true);
+
+      try {
+        const params: Parameters<typeof inventoryApi.getListings>[0] = {
+          page: pageNum,
+          limit: PAGE_LIMIT,
+          featured: pageNum === 1 && !sectorId ? true : undefined,
+          sector: sectorId ?? undefined,
+        };
+        const res = await inventoryApi.getListings(params);
+        const raw = (res.data as unknown as { data: { rows: Listing[]; total?: number } })?.data;
+        const rows: Listing[] = raw?.rows ?? [];
+
+        if (append) {
+          setListings((prev) => [...prev, ...rows]);
+        } else {
+          setListings(rows);
+        }
+        setHasMore(rows.length >= PAGE_LIMIT);
+      } catch {
+        // silently fail — listings just stays empty
+      } finally {
+        setInitialLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    []
+  );
+
+  // ── Initial deal-feed load + react to activeSectorSlug changes ──────────────
+  useEffect(() => {
+    const isFirstRun = activeSectorRef.current === 'UNINIT';
+    activeSectorRef.current = activeSectorSlug ?? '__null__';
+
+    if (!isFirstRun) {
+      // Sector changed — reset feed
+      setListings([]);
+      setPage(1);
+      setHasMore(true);
+    }
+
+    fetchPage(1, activeSectorSlug, false);
+  }, [activeSectorSlug, fetchPage]);
+
+  // ── Load More handler ────────────────────────────────────────────────────────
+  function handleLoadMore() {
+    const nextPage = page + 1;
+    setPage(nextPage);
+    fetchPage(nextPage, activeSectorSlug, true);
+  }
+
+  // ── Search submit ────────────────────────────────────────────────────────────
   function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (searchQuery.trim()) {
@@ -37,6 +157,12 @@ export default function HomePage() {
     } else {
       router.push('/listings');
     }
+  }
+
+  // ── Sector pill click ─────────────────────────────────────────────────────────
+  function handleSectorClick(sectorId: string | null, sectorSlug: string | null) {
+    setActiveSectorId(sectorId);
+    setActiveSectorSlug(sectorSlug);
   }
 
   return (
@@ -70,7 +196,10 @@ export default function HomePage() {
                 className="w-full pl-10 pr-4 py-3 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 shadow-lg"
               />
             </div>
-            <button type="submit" className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-semibold px-5 py-3 rounded-xl transition-colors shadow-lg flex items-center gap-2">
+            <button
+              type="submit"
+              className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-semibold px-5 py-3 rounded-xl transition-colors shadow-lg flex items-center gap-2"
+            >
               Search
               <ArrowRight className="w-4 h-4" />
             </button>
@@ -114,6 +243,53 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Flash Sale Strip */}
+      {flashSales.length > 0 && (
+        <section className="bg-gradient-to-r from-amber-500 to-orange-500 py-4">
+          <div className="max-w-7xl mx-auto px-4">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-white font-bold text-lg">&#9889; Flash Sales</span>
+              <span className="text-amber-100 text-sm">Ending Soon</span>
+              <Link
+                href="/listings?price_type=flash_sale"
+                className="ml-auto text-white text-sm underline"
+              >
+                View All
+              </Link>
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+              {flashSales.map((listing) => {
+                const flashListing = listing as unknown as {
+                  id: string;
+                  title: string;
+                  images: string[];
+                  asking_price: number;
+                  mrp?: number;
+                  flash_sale_ends_at: string;
+                  sector_name?: string;
+                  condition_grade: string;
+                };
+                return (
+                  <FlashSaleCard
+                    key={listing.id}
+                    listing={{
+                      id: flashListing.id,
+                      title: flashListing.title,
+                      images: flashListing.images ?? [],
+                      asking_price: flashListing.asking_price,
+                      mrp: flashListing.mrp,
+                      flash_sale_ends_at: flashListing.flash_sale_ends_at,
+                      sector_name: flashListing.sector_name,
+                      condition_grade: flashListing.condition_grade,
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
+
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-12 space-y-14">
 
         {/* Sector browse */}
@@ -123,7 +299,10 @@ export default function HomePage() {
               <h2 className="text-2xl font-bold text-gray-900">Browse by Sector</h2>
               <p className="text-gray-500 text-sm mt-1">Find deals in your industry</p>
             </div>
-            <Link href="/listings" className="text-sm text-primary-600 font-medium flex items-center gap-1 hover:gap-2 transition-all">
+            <Link
+              href="/listings"
+              className="text-sm text-primary-600 font-medium flex items-center gap-1 hover:gap-2 transition-all"
+            >
               View all <ChevronRight className="w-4 h-4" />
             </Link>
           </div>
@@ -160,25 +339,43 @@ export default function HomePage() {
           )}
         </section>
 
-        {/* Featured listings */}
+        {/* Sector filter pills + deal feed */}
         <section>
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">Featured Deals</h2>
               <p className="text-gray-500 text-sm mt-1">Handpicked inventory at the best prices</p>
             </div>
-            <Link href="/listings" className="text-sm text-primary-600 font-medium flex items-center gap-1 hover:gap-2 transition-all">
+            <Link
+              href="/listings"
+              className="text-sm text-primary-600 font-medium flex items-center gap-1 hover:gap-2 transition-all"
+            >
               View all <ChevronRight className="w-4 h-4" />
             </Link>
           </div>
 
-          {listings.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {listings.map((listing) => (
-                <ListingCard key={listing.id} listing={listing} />
+          {/* Sector filter pills */}
+          {sectors.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-6" style={{ scrollbarWidth: 'none' }}>
+              {/* "All" pill */}
+              <SectorPill
+                sector={{ id: '', name: 'All' }}
+                active={activeSectorId === null}
+                onClick={() => handleSectorClick(null, null)}
+              />
+              {sectors.map((s) => (
+                <SectorPill
+                  key={s.id}
+                  sector={s}
+                  active={activeSectorId === s.id}
+                  onClick={() => handleSectorClick(s.id, s.slug)}
+                />
               ))}
             </div>
-          ) : (
+          )}
+
+          {/* Deal feed grid */}
+          {initialLoading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {Array.from({ length: 8 }).map((_, i) => (
                 <div key={i} className="card animate-pulse">
@@ -191,6 +388,39 @@ export default function HomePage() {
                 </div>
               ))}
             </div>
+          ) : listings.length === 0 ? (
+            <div className="text-center py-16">
+              <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500 text-sm">No deals found. Try a different sector.</p>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {listings.map((listing) => (
+                  <ListingCard key={listing.id} listing={listing} />
+                ))}
+              </div>
+
+              {/* Load More */}
+              {hasMore && (
+                <div className="flex justify-center mt-8">
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={loadingMore}
+                    className="flex items-center gap-2 border-2 border-primary-600 text-primary-600 hover:bg-primary-50 font-semibold px-8 py-2.5 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {loadingMore ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Loading…
+                      </>
+                    ) : (
+                      'Load More Deals'
+                    )}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </section>
 
@@ -231,10 +461,44 @@ export default function HomePage() {
             ))}
           </div>
         </section>
+
+        {/* Recently Viewed */}
+        {recentlyViewed.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Recently Viewed</h2>
+            </div>
+            <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+              {recentlyViewed.map((listing) => (
+                <div key={listing.id} className="flex-shrink-0 w-60">
+                  <ListingCard listing={listing} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
 
+      {/* Seller CTA */}
+      <section className="bg-amber-50 border-t border-amber-100 py-12">
+        <div className="max-w-4xl mx-auto text-center px-4">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Got dead inventory sitting in your warehouse?
+          </h2>
+          <p className="text-gray-600 mb-6">
+            List it in minutes. Connect with 10,000+ verified B2B buyers across India.
+          </p>
+          <Link
+            href="/seller-register"
+            className="inline-block bg-amber-500 hover:bg-amber-600 text-white font-semibold px-8 py-3 rounded-lg transition-colors"
+          >
+            Start Selling Free &rarr;
+          </Link>
+        </div>
+      </section>
+
       {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 py-8 px-4 mt-8">
+      <footer className="bg-white border-t border-gray-200 py-8 px-4">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500">
           <p className="font-semibold text-gray-800">
             Nirmal<span className="text-primary-600">Mandi</span>

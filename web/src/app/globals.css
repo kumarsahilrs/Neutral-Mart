@@ -2,46 +2,115 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CSS custom property token layer — enables runtime theme switching */
 :root {
-  --primary: #1a56db;
-  --primary-dark: #1e40af;
-  --accent: #16a34a;
-  --accent-dark: #15803d;
-  --foreground: #111827;
-  --background: #f9fafb;
-  --card: #ffffff;
-  --border: #e5e7eb;
-  --muted: #6b7280;
+  --nm-primary: #2563eb;
+  --nm-primary-mid: #3b82f6;
+  --nm-primary-light: #93c5fd;
+  --nm-primary-pale: #dbeafe;
+  --nm-primary-dark: #1d4ed8;
+
+  --nm-surface: #ffffff;
+  --nm-bg: #f8fafc;
+  --nm-border: #e2e8f0;
+  --nm-text: #0f172a;
+  --nm-text-muted: #64748b;
+
+  --nm-success: #16a34a;
+  --nm-warning: #d97706;
+  --nm-danger: #dc2626;
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+/* Buyer panel (default) */
+[data-panel='buyer'] {
+  --nm-primary: #2563eb;
+  --nm-primary-mid: #3b82f6;
+  --nm-primary-light: #93c5fd;
+  --nm-primary-pale: #dbeafe;
+  --nm-primary-dark: #1d4ed8;
+}
+
+/* Seller panel */
+[data-panel='seller'] {
+  --nm-primary: #16a34a;
+  --nm-primary-mid: #22c55e;
+  --nm-primary-light: #86efac;
+  --nm-primary-pale: #dcfce7;
+  --nm-primary-dark: #15803d;
+}
+
+/* Dark mode overrides */
+.dark {
+  --nm-surface: #1e293b;
+  --nm-bg: #0f172a;
+  --nm-border: #334155;
+  --nm-text: #f1f5f9;
+  --nm-text-muted: #94a3b8;
+}
+
+@layer base {
+  html {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  }
+  body {
+    @apply bg-nm-bg text-nm-text dark:bg-nm-bg-dark dark:text-nm-text-dark;
+  }
 }
 
 @layer components {
-  .btn-primary {
-    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium px-4 py-2 rounded-lg transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  .nm-card {
+    @apply bg-nm-surface dark:bg-nm-surface-dark rounded-xl shadow-nm-card dark:shadow-nm-card-dark border border-nm-border dark:border-nm-border-dark;
   }
 
-  .btn-secondary {
-    @apply bg-white hover:bg-gray-50 text-gray-700 font-medium px-4 py-2 rounded-lg border border-gray-300 transition-colors duration-150;
+  .nm-btn-primary {
+    @apply bg-nm-primary hover:bg-nm-primary-dark text-white font-medium px-4 py-2 rounded-lg transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
-  .btn-accent {
-    @apply bg-accent-600 hover:bg-accent-700 text-white font-medium px-4 py-2 rounded-lg transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  .nm-btn-secondary {
+    @apply bg-white dark:bg-nm-surface-dark border border-nm-border dark:border-nm-border-dark hover:bg-gray-50 dark:hover:bg-gray-800 text-nm-text dark:text-nm-text-dark font-medium px-4 py-2 rounded-lg transition-colors duration-150;
   }
 
-  .input-field {
-    @apply w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent transition-shadow;
+  .nm-btn-seller {
+    @apply bg-nm-seller hover:bg-nm-seller-dark text-white font-medium px-4 py-2 rounded-lg transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
-  .card {
-    @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+  .nm-btn-danger {
+    @apply bg-nm-danger hover:bg-nm-danger-dark text-white font-medium px-4 py-2 rounded-lg transition-colors duration-150;
   }
 
-  .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  .nm-input {
+    @apply w-full bg-white dark:bg-nm-surface-dark border border-nm-border dark:border-nm-border-dark rounded-lg px-3 py-2 text-nm-text dark:text-nm-text-dark placeholder-nm-text-muted dark:placeholder-nm-text-dark-muted focus:outline-none focus:ring-2 focus:ring-nm-primary focus:border-transparent transition-all duration-150;
+  }
+
+  .nm-select {
+    @apply nm-input cursor-pointer;
+  }
+
+  .nm-label {
+    @apply block text-sm font-medium text-nm-text-muted dark:text-nm-text-dark-muted mb-1;
+  }
+
+  /* Legacy class aliases — keeps old screens working during migration */
+  .btn-primary { @apply nm-btn-primary; }
+  .btn-secondary { @apply nm-btn-secondary; }
+  .btn-accent { @apply nm-btn-seller; }
+  .card { @apply nm-card; }
+  .input-field { @apply nm-input; }
+  .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium; }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 dark:bg-gray-600 rounded-full;
   }
 }

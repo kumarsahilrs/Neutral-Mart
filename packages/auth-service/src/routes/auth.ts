@@ -271,6 +271,82 @@ authRouter.post('/refresh', async (req: Request, res: Response) => {
   }
 });
 
+// ── POST /auth/verify-bank ───────────────────────────────────
+// Called by seller-register step 4 before final submit
+authRouter.post(
+  '/verify-bank',
+  rateLimiter(10),
+  async (req: Request, res: Response) => {
+    const schema = z.object({
+      account_number: z.string().min(9).max(18),
+      ifsc: z.string().regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'Invalid IFSC'),
+      business_name: z.string().min(2).max(255).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json(errorResponse(parsed.error.errors[0].message, 'VALIDATION_ERROR'));
+      return;
+    }
+    const { account_number, ifsc, business_name } = parsed.data;
+    const result = await verifyBankAccount(account_number, ifsc, business_name ?? 'Verification');
+    if (!result.valid) {
+      res.status(400).json(errorResponse(result.message || 'Bank account verification failed', 'BANK_INVALID'));
+      return;
+    }
+    res.json(successResponse({ verified: true, name_match_score: result.name_match_score }));
+  }
+);
+
+// ── POST /auth/kyc-upload-url ─────────────────────────────────
+// Returns presigned S3 URL for seller KYC document upload
+authRouter.post(
+  '/kyc-upload-url',
+  rateLimiter(20),
+  async (req: Request, res: Response) => {
+    const schema = z.object({ type: z.enum(['gst_certificate', 'pan_card', 'address_proof', 'bank_statement']) });
+    const parsed = schema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json(errorResponse('Invalid document type', 'VALIDATION_ERROR'));
+      return;
+    }
+    const { type } = parsed.data;
+
+    // In dev — return a mock signed URL that points to a local endpoint
+    if (process.env.NODE_ENV === 'development') {
+      const fileKey = `kyc/${type}/${Date.now()}.pdf`;
+      res.json(successResponse({
+        uploadUrl: `http://localhost:3001/auth/kyc-upload-mock?key=${fileKey}`,
+        fileUrl: `https://${process.env.S3_BUCKET || 'nm-dev'}.s3.ap-south-1.amazonaws.com/${fileKey}`,
+      }));
+      return;
+    }
+
+    try {
+      const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
+      const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+      const client = new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
+      const fileKey = `kyc/${type}/${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`;
+      const command = new PutObjectCommand({
+        Bucket: process.env.S3_BUCKET!,
+        Key: fileKey,
+        ContentType: 'application/octet-stream',
+      });
+      const uploadUrl = await getSignedUrl(client, command, { expiresIn: 300 });
+      const fileUrl = `https://${process.env.CLOUDFRONT_DOMAIN || `${process.env.S3_BUCKET}.s3.ap-south-1.amazonaws.com`}/${fileKey}`;
+      res.json(successResponse({ uploadUrl, fileUrl }));
+    } catch (err) {
+      logger.error('Failed to generate presigned URL', { error: err });
+      res.status(500).json(errorResponse('Failed to generate upload URL'));
+    }
+  }
+);
+
+// ── GET /auth/kyc-upload-mock ─────────────────────────────────
+// Dev-only mock for document upload
+authRouter.put('/kyc-upload-mock', (req: Request, res: Response) => {
+  res.status(200).send('OK');
+});
+
 // ── POST /auth/logout ────────────────────────────────────────
 authRouter.post('/logout', authenticate, async (req: Request, res: Response) => {
   await deleteSession(req.user!.sub);

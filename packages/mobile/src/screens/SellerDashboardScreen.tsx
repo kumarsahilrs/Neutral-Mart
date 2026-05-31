@@ -27,7 +27,7 @@ interface Props {
 }
 
 export function SellerDashboardScreen({ navigation }: Props) {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, primaryColor } = useTheme();
   const user = useAppStore(s => s.user);
   const [stats, setStats] = useState<SellerStats | null>(null);
   const [recentOrders, setRecentOrders] = useState<any[]>([]);
@@ -48,12 +48,12 @@ export function SellerDashboardScreen({ navigation }: Props) {
     finally { setLoading(false); setRefreshing(false); }
   }
 
-  const s = makeStyles(colors, isDark);
+  const s = makeStyles(colors, isDark, primaryColor);
 
   if (loading) {
     return (
       <View style={s.loader}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+        <ActivityIndicator size="large" color={primaryColor} />
       </View>
     );
   }
@@ -91,10 +91,10 @@ export function SellerDashboardScreen({ navigation }: Props) {
       {/* Stats Grid */}
       {stats && (
         <View style={s.statsGrid}>
-          <StatBox label="Active Listings" value={stats.active_listings} colors={colors} onPress={() => navigation.navigate('MyListings')} />
-          <StatBox label="Pending Orders" value={stats.pending_orders} colors={colors} onPress={() => navigation.navigate('SellerOrders')} highlight={stats.pending_orders > 0} />
-          <StatBox label="Escrow Balance" value={`₹${(stats.escrow_balance / 1000).toFixed(1)}K`} colors={colors} />
-          <StatBox label="Total Earned" value={`₹${(stats.total_earned / 1000).toFixed(1)}K`} colors={colors} />
+          <StatBox label="Active Listings" value={stats.active_listings} colors={colors} primaryColor={primaryColor} onPress={() => navigation.navigate('MyListings')} />
+          <StatBox label="Pending Orders" value={stats.pending_orders} colors={colors} primaryColor={primaryColor} onPress={() => navigation.navigate('SellerOrders')} highlight={stats.pending_orders > 0} />
+          <StatBox label="Escrow Balance" value={`₹${(stats.escrow_balance / 1000).toFixed(1)}K`} colors={colors} primaryColor={primaryColor} />
+          <StatBox label="Total Earned" value={`₹${(stats.total_earned / 1000).toFixed(1)}K`} colors={colors} primaryColor={primaryColor} />
         </View>
       )}
 
@@ -142,23 +142,23 @@ export function SellerDashboardScreen({ navigation }: Props) {
   );
 }
 
-function StatBox({ label, value, colors, onPress, highlight }: any) {
+function StatBox({ label, value, colors, primaryColor, onPress, highlight }: any) {
   return (
     <TouchableOpacity
       style={[{
         flex: 1,
         minWidth: '45%',
-        backgroundColor: highlight ? Colors.primary + '15' : colors.surface,
+        backgroundColor: highlight ? primaryColor + '15' : colors.surface,
         borderRadius: Radius.lg,
         padding: Spacing[4],
         margin: Spacing[1],
         ...Shadow.sm,
         borderWidth: highlight ? 1 : 0,
-        borderColor: Colors.primary + '40',
+        borderColor: primaryColor + '40',
       }]}
       onPress={onPress}
     >
-      <Text style={{ fontSize: Typography['2xl'], fontWeight: Typography.bold, color: highlight ? Colors.primary : colors.text }}>
+      <Text style={{ fontSize: Typography['2xl'], fontWeight: Typography.bold, color: highlight ? primaryColor : colors.text }}>
         {value}
       </Text>
       <Text style={{ fontSize: Typography.xs, color: colors.muted, marginTop: Spacing[1] }}>{label}</Text>
@@ -198,7 +198,7 @@ function statusColor(status: string) {
   }
 }
 
-function makeStyles(colors: typeof Colors.light, isDark: boolean) {
+function makeStyles(colors: typeof Colors.light, isDark: boolean, primaryColor: string) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     content: { padding: Spacing[4], paddingBottom: Spacing[12] },
@@ -229,6 +229,7 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
       borderColor: Colors.accent,
     },
     kycAlertText: { color: Colors.warning, fontWeight: Typography.medium, fontSize: Typography.sm },
+
     statsGrid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -243,7 +244,7 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
       color: colors.text,
       marginBottom: Spacing[3],
     },
-    viewAll: { color: Colors.primary, fontSize: Typography.sm },
+    viewAll: { color: primaryColor, fontSize: Typography.sm },
     actions: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -260,7 +261,7 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
     },
     orderNum: { fontWeight: Typography.semibold, color: colors.text, fontSize: Typography.sm },
     orderMeta: { color: colors.muted, fontSize: Typography.xs, marginTop: 2 },
-    orderAmount: { fontWeight: Typography.bold, color: Colors.primary, fontSize: Typography.base },
+    orderAmount: { fontWeight: Typography.bold, color: primaryColor, fontSize: Typography.base },
     statusDot: { borderRadius: Radius.sm, paddingHorizontal: Spacing[2], paddingVertical: 2, marginTop: 3 },
     statusText: { color: '#fff', fontSize: 10, fontWeight: Typography.medium },
   });

@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   );
 
   return (
-    <html lang="en" className="dark">
+    <html lang="en">
       <head>
         <title>Amalthea Command Center | NirmalMandi</title>
         <meta name="description" content="NirmalMandi Admin Panel" />

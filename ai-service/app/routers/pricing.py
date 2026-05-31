@@ -6,42 +6,26 @@ import time
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-import anthropic
-import os
 
-from app.services.ai_logger import log_ai_call, estimate_cost
+from app.services.provider import complete, estimate_cost, active_provider
+from app.services.ai_logger import log_ai_call
 
 router = APIRouter()
-claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-MODEL = "claude-3-haiku-20240307"  # Cheaper model for pricing — high volume
 
-PRICING_PROMPT = """You are a pricing expert for NirmalMandi, India's dead inventory marketplace.
+SONNET = "claude-3-5-sonnet-20241022"
+HAIKU  = "claude-3-haiku-20240307"   # maps to gpt-4o-mini via provider
+
+PRICING_SYSTEM = """You are a pricing expert for NirmalMandi, India's dead inventory marketplace.
 Recommend an optimal liquidation price for this listing.
-
-Listing details:
-- Sector: {sector}
-- Product: {product_title}
-- Condition Grade: {condition_grade}
-- Quantity: {quantity} {unit}
-- State/City: {state}, {city}
-- Dead stock type: {dead_stock_type}
-- Urgency: Must sell in {urgency_days} days
-- Seller's asking price: ₹{asking_price}
-- Original MRP: ₹{mrp}
-
-Based on typical liquidation pricing for this sector and condition:
-Return JSON only:
+Based on typical liquidation pricing for the given sector and condition, return JSON only — no prose.
+Format:
 {{
   "recommended_price": 0,
   "confidence": 0.0,
   "range_low": 0,
   "range_high": 0,
   "rationale": "",
-  "velocity_at_price": {{
-    "7_days": 0.0,
-    "14_days": 0.0,
-    "30_days": 0.0
-  }},
+  "velocity_at_price": {{"7_days": 0.0, "14_days": 0.0, "30_days": 0.0}},
   "pricing_tips": []
 }}"""
 
@@ -63,45 +47,33 @@ class PricingRequest(BaseModel):
 
 @router.post("/recommend")
 async def pricing_recommendation(req: PricingRequest):
-    prompt = PRICING_PROMPT.format(
-        sector=req.sector,
-        product_title=req.product_title,
-        condition_grade=req.condition_grade,
-        quantity=req.quantity,
-        unit=req.unit,
-        state=req.state,
-        city=req.city,
-        dead_stock_type=req.dead_stock_type,
-        urgency_days=req.urgency_days or 30,
-        asking_price=f"{req.asking_price:,.0f}",
-        mrp=f"{req.mrp:,.0f}" if req.mrp else "Unknown",
+    prompt = (
+        f"Sector: {req.sector}\n"
+        f"Product: {req.product_title}\n"
+        f"Condition Grade: {req.condition_grade}\n"
+        f"Quantity: {req.quantity} {req.unit}\n"
+        f"Location: {req.state}, {req.city}\n"
+        f"Dead stock type: {req.dead_stock_type}\n"
+        f"Must sell in: {req.urgency_days or 30} days\n"
+        f"Seller asking price: ₹{req.asking_price:,.0f}\n"
+        f"Original MRP: ₹{req.mrp:,.0f}" if req.mrp else "Original MRP: Unknown"
     )
     start = time.time()
     try:
-        response = claude.messages.create(
-            model=MODEL,
-            max_tokens=512,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        ai = await complete(PRICING_SYSTEM, prompt, preferred_model=HAIKU, max_tokens=512)
         latency_ms = int((time.time() - start) * 1000)
-        content = response.content[0].text if response.content else ""
-        input_tokens = response.usage.input_tokens
-        output_tokens = response.usage.output_tokens
+        cost = estimate_cost(ai.model, ai.input_tokens, ai.output_tokens)
 
         await log_ai_call(
-            user_id=req.user_id,
-            action_type="pricing_rec",
-            model=MODEL,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost_usd=estimate_cost(MODEL, input_tokens, output_tokens),
-            latency_ms=latency_ms,
+            user_id=req.user_id, action_type="pricing_rec", model=ai.model,
+            input_tokens=ai.input_tokens, output_tokens=ai.output_tokens,
+            cost_usd=cost, latency_ms=latency_ms,
         )
 
         import json, re
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        json_match = re.search(r'\{.*\}', ai.text, re.DOTALL)
         parsed = json.loads(json_match.group()) if json_match else {}
-        return {"success": True, "data": parsed}
+        return {"success": True, "data": parsed, "provider": active_provider()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -114,27 +86,22 @@ async def fair_offer_suggestion(body: dict):
     sector = body.get("sector", "")
     start = time.time()
     try:
-        response = claude.messages.create(
-            model=MODEL,
-            max_tokens=200,
-            messages=[{
-                "role": "user",
-                "content": f"In {sector} dead inventory market, seller asks ₹{asking:,.0f}, buyer offers ₹{buyer_offer:,.0f}. Suggest a fair deal price. Return JSON: {{\"fair_price\": 0, \"rationale\": \"\"}}"
-            }],
+        prompt = (
+            f"In {sector} dead inventory market, seller asks ₹{asking:,.0f}, "
+            f"buyer offers ₹{buyer_offer:,.0f}. "
+            f"Suggest a fair deal price. Return JSON only: {{\"fair_price\": 0, \"rationale\": \"\"}}"
         )
-        content = response.content[0].text if response.content else ""
-        import json, re
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-        parsed = json.loads(json_match.group()) if json_match else {"fair_price": (asking + buyer_offer) / 2}
+        ai = await complete("You are a fair pricing mediator. Return JSON only.", prompt, preferred_model=HAIKU, max_tokens=200)
+        latency_ms = int((time.time() - start) * 1000)
         await log_ai_call(
-            user_id=body.get("user_id"),
-            action_type="pricing_rec",
-            model=MODEL,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
-            cost_usd=estimate_cost(MODEL, response.usage.input_tokens, response.usage.output_tokens),
-            latency_ms=int((time.time() - start) * 1000),
+            user_id=body.get("user_id"), action_type="pricing_rec", model=ai.model,
+            input_tokens=ai.input_tokens, output_tokens=ai.output_tokens,
+            cost_usd=estimate_cost(ai.model, ai.input_tokens, ai.output_tokens),
+            latency_ms=latency_ms,
         )
-        return {"success": True, "data": parsed}
+        import json, re
+        json_match = re.search(r'\{.*\}', ai.text, re.DOTALL)
+        parsed = json.loads(json_match.group()) if json_match else {"fair_price": (asking + buyer_offer) / 2}
+        return {"success": True, "data": parsed, "provider": active_provider()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

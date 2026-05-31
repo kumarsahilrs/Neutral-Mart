@@ -1,55 +1,61 @@
 /**
- * NirmalMandi Design Token System.
- * CSS custom properties → React Native StyleSheet values.
- * NEVER hardcode colors — always reference tokens.
- * Dark mode supported on every screen.
+ * NirmalMandi Design Token System — packages/mobile
+ * Aligned with spec: buyer panel = blue, seller panel = green.
+ * Keeps Colors.light / Colors.dark API for existing screens.
  */
 
 export const Colors = {
-  // Brand
-  primary: '#1a472a',       // Forest green
-  primaryLight: '#2d6a4f',
-  primaryPale: '#e8f5e9',
-  accent: '#f9a825',        // Golden yellow — urgency, highlights
-  accentLight: '#fff8e1',
+  // Brand — buyer panel (blue)
+  primary: '#2563eb',
+  primaryLight: '#3b82f6',
+  primaryPale: '#dbeafe',
+  primaryDark: '#1d4ed8',
+
+  // Seller panel (green) — for seller screens
+  sellerPrimary: '#16a34a',
+  sellerPrimaryLight: '#22c55e',
+  sellerPrimaryPale: '#dcfce7',
+  sellerPrimaryDark: '#15803d',
+
+  // Urgency / highlight accent
+  accent: '#f59e0b',
+  accentLight: '#fef3c7',
 
   // Semantic
-  success: '#2e7d32',
-  warning: '#e65100',
-  error: '#c62828',
+  success: '#16a34a',
+  warning: '#d97706',
+  error: '#dc2626',
   info: '#1565c0',
 
-  // Light mode
+  // Light mode surfaces
   light: {
-    background: '#f5f5f0',
+    background: '#f8fafc',
     surface: '#ffffff',
-    surfaceAlt: '#fafaf7',
-    text: '#1a1a1a',
-    textSecondary: '#555555',
-    muted: '#888888',
-    border: '#e0e0e0',
-    divider: '#f0f0f0',
+    surfaceAlt: '#f1f5f9',
+    text: '#0f172a',
+    textSecondary: '#475569',
+    muted: '#94a3b8',
+    border: '#e2e8f0',
+    divider: '#f1f5f9',
   },
 
-  // Dark mode
+  // Dark mode surfaces
   dark: {
-    background: '#0f1a12',
-    surface: '#1a2b1e',
-    surfaceAlt: '#243329',
-    text: '#e8f5e9',
-    textSecondary: '#a5c8ae',
-    muted: '#6b8f72',
-    border: '#2d4a33',
-    divider: '#1e3524',
+    background: '#0f172a',
+    surface: '#1e293b',
+    surfaceAlt: '#1e2d3d',
+    text: '#f1f5f9',
+    textSecondary: '#94a3b8',
+    muted: '#64748b',
+    border: '#334155',
+    divider: '#1e293b',
   },
 } as const;
 
 export const Typography = {
-  // Font families
-  sans: 'System',       // Platform system font
+  sans: 'System',
   mono: 'Courier New',
 
-  // Sizes
   xs: 11,
   sm: 13,
   base: 15,
@@ -59,7 +65,6 @@ export const Typography = {
   '2xl': 30,
   '3xl': 36,
 
-  // Weights
   regular: '400' as const,
   medium: '500' as const,
   semibold: '600' as const,

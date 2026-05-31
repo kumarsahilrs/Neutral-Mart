@@ -37,7 +37,7 @@ const GRADE_COLOR: Record<string, string> = {
 };
 
 export function DealCard({ listing, onPress }: Props) {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, primaryColor } = useTheme();
   const discount = listing.mrp > 0
     ? Math.round((1 - listing.asking_price / listing.mrp) * 100)
     : 0;
@@ -45,7 +45,7 @@ export function DealCard({ listing, onPress }: Props) {
   const isFlash = listing.price_type === 'flash';
   const isAuction = listing.price_type === 'auction';
 
-  const s = makeStyles(colors, isDark);
+  const s = makeStyles(colors, isDark, primaryColor);
 
   return (
     <TouchableOpacity style={s.card} onPress={onPress} activeOpacity={0.9}>
@@ -113,7 +113,7 @@ export function DealCard({ listing, onPress }: Props) {
   );
 }
 
-function makeStyles(colors: typeof Colors.light, isDark: boolean) {
+function makeStyles(colors: typeof Colors.light, isDark: boolean, primaryColor: string) {
   return StyleSheet.create({
     card: {
       backgroundColor: colors.surface,
@@ -129,12 +129,12 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
     image: { width: '100%', height: '100%' },
     imagePlaceholder: {
       flex: 1,
-      backgroundColor: Colors.primaryPale,
+      backgroundColor: colors.surfaceAlt,
       justifyContent: 'center',
       alignItems: 'center',
     },
     placeholderText: {
-      color: Colors.primary,
+      color: primaryColor,
       fontSize: Typography.sm,
       fontWeight: Typography.bold,
       letterSpacing: 2,
@@ -192,7 +192,7 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
     price: {
       fontSize: Typography.xl,
       fontWeight: Typography.bold,
-      color: Colors.primary,
+      color: primaryColor,
     },
     mrp: {
       fontSize: Typography.xs,

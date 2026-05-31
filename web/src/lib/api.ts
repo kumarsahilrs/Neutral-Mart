@@ -135,17 +135,22 @@ export const inventoryApi = {
 
 // ── Orders ────────────────────────────────────────────────────────────────────
 export const ordersApi = {
-  placeOrder: (data: { listing_id: string; quantity: number; buyer_state: string }) =>
-    api.post<Order>('/orders', data),
+  placeOrder: (data: {
+    listing_id: string;
+    quantity: number;
+    buyer_state?: string;
+    delivery_address?: Address;
+    freight_type?: string;
+  }) => api.post<{ orderId: string; order_number: string }>('/orders', data),
 
-  getMyOrders: () =>
-    api.get<Order[]>('/orders/my/buyer'),
+  getMyOrders: (params?: { status?: string; page?: number; limit?: number; search?: string }) =>
+    api.get<Order[]>('/orders/my/buyer', { params }),
 
   getSellerOrders: (params?: { status?: string; page?: number; limit?: number }) =>
     api.get<{ data: Order[]; total: number }>('/orders/my/seller', { params }),
 
   getOrder: (id: string) =>
-    api.get<Order>(`/orders/${id}`),
+    api.get<OrderDetail>(`/orders/${id}`),
 
   confirmDelivery: (id: string) =>
     api.patch(`/orders/${id}/confirm-delivery`),
@@ -158,6 +163,95 @@ export const ordersApi = {
 export const paymentApi = {
   initiate: (data: { orderId: string; amountPaisa: number; listingId: string; sellerId: string }) =>
     api.post<{ razorpay_order_id: string; key_id: string; amount: number }>('/payments/initiate', data),
+};
+
+export const paymentsApi = {
+  initiatePayment: (orderId: string, amount: number) =>
+    api.post<{ razorpay_order_id: string; razorpay_key: string; amount: number }>('/payments/initiate', {
+      order_id: orderId,
+      amount,
+    }),
+};
+
+// ── Addresses ─────────────────────────────────────────────────────────────────
+export const addressApi = {
+  getAddresses: () =>
+    api.get<Address[]>('/user/addresses'),
+
+  addAddress: (data: {
+    name: string;
+    phone: string;
+    address_line1: string;
+    address_line2?: string;
+    city: string;
+    state: string;
+    pincode: string;
+    save_for_future?: boolean;
+  }) => api.post<Address>('/user/addresses', data),
+};
+
+// ── Disputes ──────────────────────────────────────────────────────────────────
+export const disputeApi = {
+  raiseDispute: (data: {
+    order_id: string;
+    reason: string;
+    description: string;
+    evidence_keys: string[];
+  }) => api.post<{ id: string; status: string }>('/disputes/raise', data),
+
+  getUploadUrl: (disputeId: string, filename: string, filetype: string) =>
+    api.post<{ uploadUrl: string; key: string }>(`/disputes/${disputeId}/evidence`, {
+      filename,
+      filetype,
+    }),
+};
+
+// ── Referral ──────────────────────────────────────────────────────────────────
+export const referralApi = {
+  getStats: () =>
+    api.get<ReferralStats>('/referral/stats'),
+};
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+export const notificationsApi = {
+  getNotifications: (params?: { page?: number; limit?: number; type?: string }) =>
+    api.get<{ data: Notification[]; total: number }>('/notifications', { params }),
+
+  markRead: (id: string) =>
+    api.patch(`/notifications/${id}/read`),
+
+  markAllRead: () =>
+    api.patch('/notifications/read-all'),
+
+  getUnreadCount: () =>
+    api.get<{ count: number }>('/notifications/unread-count'),
+};
+
+// ── Invoices ──────────────────────────────────────────────────────────────────
+export const invoiceApi = {
+  getInvoice: (orderId: string) =>
+    api.get<{ url: string }>(`/invoices/${orderId}`),
+};
+
+// ── Negotiations ─────────────────────────────────────────────────────────────
+export const negotiationsApi = {
+  makeOffer: (listing_id: string, offered_price: number, message?: string) =>
+    api.post('/negotiations', { listing_id, offered_price, message }),
+
+  counter: (id: string, offered_price: number, message?: string) =>
+    api.post(`/negotiations/${id}/counter`, { offered_price, message }),
+
+  accept: (id: string) =>
+    api.post(`/negotiations/${id}/accept`),
+
+  reject: (id: string) =>
+    api.post(`/negotiations/${id}/reject`),
+
+  getMyNegotiations: () =>
+    api.get('/negotiations/my'),
+
+  getForListing: (listing_id: string) =>
+    api.get(`/negotiations/listing/${listing_id}`),
 };
 
 // ── AI ────────────────────────────────────────────────────────────────────────
@@ -184,6 +278,37 @@ export const aiApi = {
   }) => api.post<{ recommended_price: number; floor_price: number; rationale: string }>(
     '/ai/pricing/recommend', data
   ),
+
+  generateCaption: (data: {
+    listing_id: string;
+    product_title: string;
+    sector: string;
+    price: number;
+    mrp?: number;
+    grade?: string;
+    city: string;
+    state: string;
+    language: 'en' | 'hi' | 'hinglish';
+    tone: 'urgent' | 'premium' | 'casual' | 'bulk';
+    platform: 'instagram' | 'whatsapp' | 'facebook' | 'telegram';
+  }) => api.post<{
+    success: boolean;
+    data: {
+      hook: string;
+      body: string;
+      cta: string;
+      hashtags: string[];
+      full_caption: string;
+      cost_credits: number;
+    };
+  }>('/ai/content/caption', data),
+
+  generateHook: (data: {
+    product_title: string;
+    sector: string;
+    discount_pct: number;
+    language: 'en' | 'hi' | 'hinglish';
+  }) => api.post<{ success: boolean; data: { hook: string } }>('/ai/content/hook', data),
 };
 
 // ── Shared types ──────────────────────────────────────────────────────────────
@@ -261,6 +386,79 @@ export interface Notification {
   id: string;
   title: string;
   body: string;
+  type: 'order' | 'dispute' | 'listing' | 'system';
   is_read: boolean;
   created_at: string;
+  data?: {
+    link?: string;
+    [key: string]: unknown;
+  };
+}
+
+export interface Address {
+  id: string;
+  name: string;
+  phone: string;
+  address_line1: string;
+  address_line2?: string;
+  city: string;
+  state: string;
+  pincode: string;
+}
+
+export interface OrderDetail extends Order {
+  listing_images?: string[];
+  listing_image?: string;
+  seller_business_name: string;
+  seller_name?: string;
+  seller_city?: string;
+  seller_state?: string;
+  seller_response_rate?: number;
+  delivery_address?: Address;
+  freight_type?: string;
+  awb_number?: string;
+  carrier?: string;
+  tracking_url?: string;
+  confirmed_at?: string;
+  shipped_at?: string;
+  delivered_at?: string;
+  completed_at?: string;
+  paid_at?: string;
+  cancelled_at?: string;
+  dispute_id?: string;
+  unit?: string;
+  condition_grade?: string;
+  mrp?: number;
+  commission_rate?: number;
+  commission_amount?: number;
+}
+
+export interface ReferralStats {
+  code: string;
+  link: string;
+  total_shares: number;
+  clicks: number;
+  conversions: number;
+  total_earned: number;
+  tier: 'silver' | 'gold' | 'platinum';
+  referral_count: number;
+  referrals: ReferralEntry[];
+  payouts: ReferralPayout[];
+}
+
+export interface ReferralEntry {
+  id: string;
+  buyer_name: string;
+  date: string;
+  purchase_amount: number;
+  commission: number;
+  status: 'pending' | 'paid';
+}
+
+export interface ReferralPayout {
+  id: string;
+  date: string;
+  amount: number;
+  bank_last4: string;
+  status: 'pending' | 'processing' | 'paid';
 }

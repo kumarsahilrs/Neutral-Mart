@@ -2,6 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CSS custom property token layer — enables runtime theme switching */
+:root {
+  --nm-primary: #2563eb;
+  --nm-primary-mid: #3b82f6;
+  --nm-primary-light: #93c5fd;
+  --nm-primary-pale: #dbeafe;
+  --nm-primary-dark: #1d4ed8;
+
+  --nm-surface: #ffffff;
+  --nm-bg: #f8fafc;
+  --nm-border: #e2e8f0;
+  --nm-text: #0f172a;
+  --nm-text-muted: #64748b;
+
+  --nm-success: #16a34a;
+  --nm-warning: #d97706;
+  --nm-danger: #dc2626;
+}
+
+.dark {
+  --nm-surface: #1e2130;
+  --nm-bg: #0f1117;
+  --nm-border: #2d3148;
+  --nm-text: #e2e8f0;
+  --nm-text-muted: #94a3b8;
+}
+
 @layer base {
   html {
     font-family: 'Inter', system-ui, sans-serif;

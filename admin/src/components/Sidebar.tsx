@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import clsx from 'clsx';
 import {
   LayoutDashboard,
@@ -17,22 +17,54 @@ import {
   ChevronRight,
   LogOut,
   Bell,
+  Shield,
+  Banknote,
+  Clock,
 } from 'lucide-react';
+import api from '@/lib/api';
 
-const navItems = [
-  { label: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { label: 'Inventory', href: '/inventory', icon: Package },
-  { label: 'Transactions', href: '/transactions', icon: ArrowLeftRight },
-  { label: 'Disputes', href: '/disputes', icon: Scale },
-  { label: 'Users', href: '/users', icon: Users },
-  { label: 'Categories', href: '/categories', icon: Tag },
-  { label: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { label: 'Settings', href: '/settings', icon: Settings },
-];
+interface NavItem {
+  label: string;
+  href: string;
+  icon: React.ElementType;
+  badge?: number;
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [pendingKycCount, setPendingKycCount] = useState(0);
+
+  // Fetch pending KYC count on mount
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchPendingKyc() {
+      try {
+        const res = await api.get('/admin/kyc/pending-count');
+        const count = res.data?.data?.count ?? res.data?.count ?? 0;
+        if (!cancelled) setPendingKycCount(count);
+      } catch {
+        // silently ignore — badge is non-critical
+      }
+    }
+    fetchPendingKyc();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Build nav items — inject KYC Queue with live badge between Users and Categories
+  const navItems: NavItem[] = [
+    { label: 'Dashboard', href: '/', icon: LayoutDashboard },
+    { label: 'Inventory', href: '/inventory', icon: Package },
+    { label: 'Transactions', href: '/transactions', icon: ArrowLeftRight },
+    { label: 'Disputes', href: '/disputes', icon: Scale },
+    { label: 'Users', href: '/users', icon: Users },
+    { label: 'KYC Queue', href: '/kyc', icon: Shield, badge: pendingKycCount },
+    { label: 'Categories', href: '/categories', icon: Tag },
+    { label: 'Analytics', href: '/analytics', icon: BarChart3 },
+    { label: 'Payouts', href: '/payouts', icon: Banknote },
+    { label: 'Audit Log', href: '/audit', icon: Clock },
+    { label: 'Settings', href: '/settings', icon: Settings },
+  ];
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
@@ -79,8 +111,9 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 space-y-0.5 px-2">
-        {navItems.map(({ label, href, icon: Icon }) => {
+        {navItems.map(({ label, href, icon: Icon, badge }) => {
           const isActive = href === '/' ? pathname === '/' : pathname.startsWith(href);
+          const hasBadge = badge !== undefined && badge > 0;
           return (
             <Link
               key={href}
@@ -94,8 +127,24 @@ export default function Sidebar() {
               )}
               title={collapsed ? label : undefined}
             >
-              <Icon size={18} className="shrink-0" />
-              {!collapsed && <span className="truncate">{label}</span>}
+              {/* Icon — with yellow dot badge when collapsed */}
+              <span className="relative shrink-0">
+                <Icon size={18} />
+                {hasBadge && collapsed && (
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-yellow-400 border border-white dark:border-nm-surface-dark" />
+                )}
+              </span>
+
+              {!collapsed && (
+                <>
+                  <span className="truncate flex-1">{label}</span>
+                  {hasBadge && (
+                    <span className="ml-auto shrink-0 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-yellow-400 text-yellow-900 text-[10px] font-bold px-1">
+                      {badge > 99 ? '99+' : badge}
+                    </span>
+                  )}
+                </>
+              )}
             </Link>
           );
         })}

@@ -142,4 +142,52 @@ export const notificationsAdminApi = {
     title: string; message: string; channel?: string; targetRole?: string;
   }) =>
     api.post('/admin/notifications/broadcast', data),
+  sendToUser: (data: {
+    user_id: string; title: string; body: string; channel: string;
+  }) =>
+    api.post('/admin/notifications/send-to-user', data),
+};
+
+export const kycAdminApi = {
+  getList: (params: Record<string, string | number>) =>
+    api.get('/admin/kyc', { params }),
+  getStats: () =>
+    api.get('/admin/kyc/stats'),
+  getPendingCount: () =>
+    api.get('/admin/kyc/pending-count'),
+  review: (id: string, body: Record<string, string>) =>
+    api.post(`/admin/kyc/${id}/review`, body),
+};
+
+export const payoutsAdminApi = {
+  getPayouts: (params: Record<string, string | number>) =>
+    api.get('/admin/payouts', { params }),
+  getStats: () =>
+    api.get('/admin/payouts/stats'),
+  approve: (id: string) =>
+    api.post(`/admin/payouts/${id}/approve`),
+  hold: (id: string, reason: string) =>
+    api.post(`/admin/payouts/${id}/hold`, { reason }),
+  release: (id: string) =>
+    api.post(`/admin/payouts/${id}/release`),
+  process: (id: string) =>
+    api.post(`/admin/payouts/${id}/process`),
+  bulkApprove: (ids: string[]) =>
+    api.post('/admin/payouts/bulk-approve', { ids }),
+  bulkHold: (ids: string[], reason: string) =>
+    api.post('/admin/payouts/bulk-hold', { ids, reason }),
+};
+
+export const auditLogApi = {
+  getLog: (params: Record<string, string | number>) =>
+    api.get('/admin/audit-log', { params }),
+  getAdmins: () =>
+    api.get('/admin/audit-log/admins'),
+  exportCsv: (params: Record<string, string>) =>
+    api.get('/admin/audit-log/export-csv', { params, responseType: 'blob' }),
+};
+
+export const referralsApi = {
+  getReferrals: (params: Record<string, string | number>) =>
+    api.get('/admin/referrals', { params }),
 };

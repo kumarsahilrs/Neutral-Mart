@@ -49,7 +49,7 @@ interface Props {
 }
 
 export function HomeScreen({ navigation }: Props) {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, primaryColor } = useTheme();
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -82,7 +82,7 @@ export function HomeScreen({ navigation }: Props) {
 
   function onSearch() { loadDeals(query); }
 
-  const s = makeStyles(colors, isDark);
+  const s = makeStyles(colors, isDark, primaryColor);
 
   return (
     <View style={s.container}>
@@ -124,7 +124,7 @@ export function HomeScreen({ navigation }: Props) {
       {/* Deal Feed */}
       {loading && !refreshing ? (
         <View style={s.loader}>
-          <ActivityIndicator color={Colors.primary} size="large" />
+          <ActivityIndicator color={primaryColor} size="large" />
         </View>
       ) : (
         <FlatList
@@ -159,7 +159,7 @@ export function HomeScreen({ navigation }: Props) {
   );
 }
 
-function makeStyles(colors: typeof Colors.light, isDark: boolean) {
+function makeStyles(colors: typeof Colors.light, isDark: boolean, primaryColor: string) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     searchBar: {
@@ -178,7 +178,7 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
       ...Shadow.sm,
     },
     searchBtn: {
-      backgroundColor: Colors.primary,
+      backgroundColor: primaryColor,
       borderRadius: Radius.md,
       paddingHorizontal: Spacing[4],
       justifyContent: 'center',
@@ -202,8 +202,8 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
       borderColor: colors.border,
     },
     pillActive: {
-      backgroundColor: Colors.primary,
-      borderColor: Colors.primary,
+      backgroundColor: primaryColor,
+      borderColor: primaryColor,
     },
     pillText: {
       color: colors.textSecondary,

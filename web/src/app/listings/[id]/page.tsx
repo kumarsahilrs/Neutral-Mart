@@ -6,12 +6,14 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft, Package, MapPin, Tag, IndianRupee, ShoppingCart,
-  CheckCircle, AlertCircle, Loader2, Calculator
+  CheckCircle, AlertCircle, Loader2, Calculator, BadgeCheck, Zap, Megaphone, MessageCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Header from '@/components/Header';
-import { inventoryApi, ordersApi } from '@/lib/api';
-import { getUser, isAuthenticated } from '@/lib/auth';
+import MarketingPanel from '@/components/MarketingPanel';
+import NegotiationModal from '@/components/NegotiationModal';
+import { inventoryApi } from '@/lib/api';
+import { isAuthenticated } from '@/lib/auth';
 
 const INDIAN_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
@@ -26,16 +28,13 @@ export default function ListingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
-  const [quantity, setQuantity] = useState(1);
-  const [buyerState, setBuyerState] = useState(getUser()?.state ?? '');
-  const [placing, setPlacing] = useState(false);
-  const [orderSuccess, setOrderSuccess] = useState(false);
-  const [orderId, setOrderId] = useState('');
+  const [calcQuantity, setCalcQuantity] = useState(1);
+  const [showMarketing, setShowMarketing] = useState(false);
+  const [showNegotiation, setShowNegotiation] = useState(false);
 
   const { data: listing, isLoading, isError } = useQuery({
     queryKey: ['listing', id],
     queryFn: () => inventoryApi.getListing(id),
-    // API returns { success, data: {...listing} }
     select: (res) => (res.data as unknown as { data: Record<string, unknown> })?.data ?? null,
     enabled: !!id,
   });
@@ -65,7 +64,7 @@ export default function ListingDetailPage() {
     );
   }
 
-  // Normalize field names — DB uses asking_price / available_quantity
+  // Normalize field names
   const l = listing as Record<string, unknown>;
   const pricePerUnit = Number(l.asking_price ?? l.price_per_unit ?? 0);
   const availableQty = Number(l.available_quantity ?? l.quantity ?? 0);
@@ -75,76 +74,70 @@ export default function ListingDetailPage() {
   const listingDesc = l.description ? String(l.description) : null;
   const listingUnit = String(l.unit ?? 'unit');
   const listingStatus = String(l.status ?? 'unknown');
-
-  const baseAmount = pricePerUnit * quantity;
+  const urgencyDays = l.urgency_days ? Number(l.urgency_days) : 0;
+  const mrp = l.mrp ? Number(l.mrp) : null;
   const gstRate = Number(l.gst_rate ?? 18);
-  const gstAmount = (baseAmount * gstRate) / 100;
-  const totalAmount = baseAmount + gstAmount;
+  const conditionGrade = l.condition_grade ? String(l.condition_grade) : null;
+  const sellerVerificationTier = l.seller_verification_tier
+    ? String(l.seller_verification_tier)
+    : (l.seller_tier ? String(l.seller_tier) : null);
+  const isVerifiedSeller = sellerVerificationTier === 'verified' || sellerVerificationTier === 'premium';
+  const sellerBusinessName = l.seller_business_name ? String(l.seller_business_name) : null;
+  const sectorSpecificFields = l.sector_specific_fields && typeof l.sector_specific_fields === 'object'
+    ? l.sector_specific_fields as Record<string, unknown>
+    : null;
 
-  async function handlePlaceOrder(e: React.FormEvent) {
-    e.preventDefault();
+  // Lot calculator derived values
+  const safeCalcQty = Math.max(1, Math.min(availableQty || 1, calcQuantity));
+  const calcTotal = pricePerUnit * safeCalcQty;
+  const estimatedResale = mrp ? mrp * safeCalcQty : null;
+  const estimatedMargin = mrp && mrp > 0 ? (((mrp - pricePerUnit) / mrp) * 100).toFixed(1) : null;
+
+  function handleBuyNow() {
     if (!isAuthenticated()) {
       toast.error('Please login to place an order');
       router.push('/login');
       return;
     }
-    if (!buyerState) {
-      toast.error('Please select your state');
-      return;
-    }
-    if (quantity < 1 || quantity > availableQty) {
-      toast.error(`Quantity must be between 1 and ${availableQty}`);
-      return;
-    }
-    setPlacing(true);
-    try {
-      const res = await ordersApi.placeOrder({
-        listing_id: String(l.id),
-        quantity,
-        buyer_state: buyerState,
-      });
-      const payload = (res.data as unknown as { data: { order_number?: string; order_id?: string } })?.data;
-      setOrderId(payload?.order_number ?? payload?.order_id ?? String(l.id));
-      setOrderSuccess(true);
-      toast.success('Order placed successfully!');
-    } catch {
-      toast.error('Failed to place order. Please try again.');
-    } finally {
-      setPlacing(false);
-    }
-  }
-
-  if (orderSuccess) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <Header />
-        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-          <div className="card p-10 max-w-md w-full">
-            <CheckCircle className="w-16 h-16 text-accent-600 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Order Placed!</h2>
-            <p className="text-gray-500 text-sm mb-1">Your order has been submitted successfully.</p>
-            {orderId && (
-              <p className="text-sm font-medium text-gray-700 mb-6">
-                Order ID: <span className="text-primary-600 font-bold">{orderId}</span>
-              </p>
-            )}
-            <div className="space-y-2">
-              <Link href="/dashboard" className="btn-primary block w-full text-center">
-                View My Orders
-              </Link>
-              <Link href="/listings" className="btn-secondary block w-full text-center">
-                Continue Browsing
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    router.push(`/checkout?listing_id=${String(l.id)}&quantity=${safeCalcQty}`);
   }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Header />
+
+      {showNegotiation && (
+        <NegotiationModal
+          listing={{
+            id: String(l.id ?? ''),
+            title: listingTitle,
+            asking_price: pricePerUnit,
+            mrp: mrp ?? undefined,
+            sector: sectorName,
+            floor_price: l.floor_price ? Number(l.floor_price) : undefined,
+          }}
+          onClose={() => setShowNegotiation(false)}
+          onAccepted={(agreedPrice, negId) => {
+            router.push(`/checkout?listing_id=${String(l.id)}&quantity=${safeCalcQty}&agreed_price=${agreedPrice}&negotiation_id=${negId}`);
+          }}
+        />
+      )}
+
+      {showMarketing && (
+        <MarketingPanel
+          listing={{
+            id: String(l.id ?? ''),
+            title: listingTitle,
+            sector_name: sectorName,
+            asking_price: pricePerUnit,
+            mrp: mrp ?? undefined,
+            condition_grade: conditionGrade ?? undefined,
+            city: String(l.city ?? l.seller_city ?? ''),
+            state: String(l.state ?? l.seller_state ?? ''),
+          }}
+          onClose={() => setShowMarketing(false)}
+        />
+      )}
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
         {/* Back */}
         <Link
@@ -155,14 +148,32 @@ export default function ListingDetailPage() {
           Back to listings
         </Link>
 
+        {/* Urgency banner */}
+        {urgencyDays > 0 && (
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6">
+            <Zap className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <p className="text-sm font-medium text-amber-800">
+              Must sell in {urgencyDays} day{urgencyDays !== 1 ? 's' : ''} — seller is liquidating urgently
+            </p>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left: Listing details */}
           <div className="lg:col-span-2 space-y-6">
             {/* Image area */}
             <div className="card overflow-hidden">
-              <div className="bg-gradient-to-br from-primary-50 to-primary-100 h-64 flex items-center justify-center">
-                <Package className="w-20 h-20 text-primary-300" />
-              </div>
+              {Array.isArray(l.images) && (l.images as string[]).length > 0 ? (
+                <img
+                  src={(l.images as string[])[0]}
+                  alt={listingTitle}
+                  className="w-full h-64 object-cover"
+                />
+              ) : (
+                <div className="bg-gradient-to-br from-primary-50 to-primary-100 h-64 flex items-center justify-center">
+                  <Package className="w-20 h-20 text-primary-300" />
+                </div>
+              )}
             </div>
 
             {/* Info */}
@@ -175,23 +186,41 @@ export default function ListingDetailPage() {
                 <span className={`badge ${listingStatus === 'live' || listingStatus === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                   {listingStatus}
                 </span>
+                {conditionGrade && (
+                  <span className="badge bg-blue-50 text-blue-700">
+                    Grade: {conditionGrade}
+                  </span>
+                )}
               </div>
 
               <h1 className="text-2xl font-bold text-gray-900 mb-2">{listingTitle}</h1>
 
-              <div className="flex items-center gap-1.5 text-sm text-gray-500 mb-4">
-                <MapPin className="w-4 h-4 flex-shrink-0" />
-                {sellerLocation}
+              <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500 mb-4">
+                <span className="flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 flex-shrink-0" />
+                  {sellerLocation}
+                </span>
+                {sellerBusinessName && (
+                  <span className="flex items-center gap-1.5">
+                    {isVerifiedSeller ? (
+                      <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-full border border-blue-200">
+                        <BadgeCheck className="w-3 h-3" />
+                        Verified Seller
+                      </span>
+                    ) : null}
+                    <span>{sellerBusinessName}</span>
+                  </span>
+                )}
               </div>
 
               {listingDesc && (
-                <div>
+                <div className="mb-6">
                   <h3 className="text-sm font-semibold text-gray-700 mb-2">Description</h3>
                   <p className="text-sm text-gray-600 leading-relaxed">{listingDesc}</p>
                 </div>
               )}
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-gray-100">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-6 border-t border-gray-100">
                 <div>
                   <p className="text-xs text-gray-500 mb-0.5">Price per {listingUnit}</p>
                   <p className="flex items-center text-xl font-bold text-gray-900">
@@ -209,20 +238,96 @@ export default function ListingDetailPage() {
                   <p className="text-xs text-gray-500 mb-0.5">GST Rate</p>
                   <p className="text-xl font-bold text-gray-900">{gstRate}%</p>
                 </div>
+                {mrp && (
+                  <div>
+                    <p className="text-xs text-gray-500 mb-0.5">MRP</p>
+                    <p className="text-lg font-semibold text-gray-700">₹{mrp.toLocaleString('en-IN')}</p>
+                  </div>
+                )}
+                {estimatedMargin && (
+                  <div>
+                    <p className="text-xs text-gray-500 mb-0.5">Potential Margin</p>
+                    <p className="text-lg font-bold text-green-600">{estimatedMargin}%</p>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Sector-specific fields */}
+            {sectorSpecificFields && Object.keys(sectorSpecificFields).length > 0 && (
+              <div className="card p-6">
+                <h3 className="text-base font-semibold text-gray-900 mb-4">Product Specifications</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
+                  {Object.entries(sectorSpecificFields).map(([key, value]) => (
+                    <div key={key} className="flex justify-between border-b border-gray-100 pb-2">
+                      <span className="text-sm text-gray-500 capitalize">
+                        {key.replace(/_/g, ' ')}
+                      </span>
+                      <span className="text-sm font-medium text-gray-800 text-right max-w-[60%]">
+                        {String(value)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Right: Order form */}
-          <div className="lg:col-span-1">
-            <div className="card p-6 sticky top-24">
+          {/* Right: Lot Calculator + Order CTA */}
+          <div className="lg:col-span-1 space-y-4">
+            {/* Lot Calculator */}
+            <div className="card p-6">
               <div className="flex items-center gap-2 mb-5">
-                <ShoppingCart className="w-5 h-5 text-primary-600" />
-                <h2 className="text-lg font-bold text-gray-900">Place Order</h2>
+                <Calculator className="w-5 h-5 text-primary-600" />
+                <h2 className="text-lg font-bold text-gray-900">Calculate Your Order</h2>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Quantity ({listingUnit})
+                </label>
+                <input
+                  type="number"
+                  value={calcQuantity}
+                  onChange={(e) => setCalcQuantity(Math.max(1, Math.min(availableQty || 999999, Number(e.target.value))))}
+                  min={1}
+                  max={availableQty}
+                  className="input-field"
+                />
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Max: {availableQty.toLocaleString('en-IN')} {listingUnit}
+                </p>
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-2.5 text-sm mb-5">
+                <div className="flex justify-between text-gray-700">
+                  <span>Total Price</span>
+                  <span className="font-bold text-gray-900">
+                    ₹{calcTotal.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span>Per Unit Cost</span>
+                  <span>₹{pricePerUnit.toLocaleString('en-IN')}</span>
+                </div>
+                {estimatedResale !== null && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>Est. Resale Value</span>
+                    <span className="text-green-700 font-medium">
+                      ₹{estimatedResale.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                )}
+                {estimatedMargin !== null && (
+                  <div className="flex justify-between border-t border-gray-200 pt-2 text-gray-600">
+                    <span>Est. Margin</span>
+                    <span className="font-bold text-green-600">{estimatedMargin}%</span>
+                  </div>
+                )}
               </div>
 
               {!isAuthenticated() ? (
-                <div className="text-center py-4">
+                <div className="text-center">
                   <AlertCircle className="w-8 h-8 text-amber-400 mx-auto mb-2" />
                   <p className="text-sm text-gray-600 mb-4">Login required to place orders</p>
                   <Link href="/login" className="btn-primary block w-full text-center">
@@ -230,76 +335,93 @@ export default function ListingDetailPage() {
                   </Link>
                 </div>
               ) : (
-                <form onSubmit={handlePlaceOrder} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Quantity ({listingUnit})
-                    </label>
-                    <input
-                      type="number"
-                      value={quantity}
-                      onChange={(e) => setQuantity(Math.max(1, Math.min(availableQty, Number(e.target.value))))}
-                      min={1}
-                      max={availableQty}
-                      className="input-field"
-                      required
-                    />
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      Max: {availableQty.toLocaleString('en-IN')} {listingUnit}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Delivery State
-                    </label>
-                    <select
-                      value={buyerState}
-                      onChange={(e) => setBuyerState(e.target.value)}
-                      className="input-field"
-                      required
-                    >
-                      <option value="">Select state</option>
-                      {INDIAN_STATES.map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Price breakdown */}
-                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-2 text-sm">
-                    <div className="flex items-center gap-1.5 text-gray-600 font-medium mb-2">
-                      <Calculator className="w-4 h-4" />
-                      Price Breakdown
-                    </div>
-                    <div className="flex justify-between text-gray-600">
-                      <span>Base ({quantity} × ₹{pricePerUnit.toLocaleString('en-IN')})</span>
-                      <span>₹{baseAmount.toLocaleString('en-IN')}</span>
-                    </div>
-                    <div className="flex justify-between text-gray-600">
-                      <span>GST ({gstRate}%)</span>
-                      <span>₹{gstAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between font-bold text-gray-900 border-t border-gray-300 pt-2 mt-1">
-                      <span>Total</span>
-                      <span className="text-primary-600">₹{totalAmount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                    </div>
-                  </div>
-
+                <div className="space-y-2">
                   <button
-                    type="submit"
-                    disabled={placing || (listingStatus !== 'live' && listingStatus !== 'active')}
-                    className="btn-accent w-full flex items-center justify-center gap-2 py-2.5"
+                    onClick={handleBuyNow}
+                    disabled={listingStatus !== 'live' && listingStatus !== 'active'}
+                    className="nm-btn-seller w-full flex items-center justify-center gap-2 py-2.5"
                   >
-                    {placing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
-                    {placing ? 'Placing Order...' : (listingStatus !== 'live' && listingStatus !== 'active') ? 'Not Available' : 'Place Order'}
+                    <ShoppingCart className="w-4 h-4" />
+                    {(listingStatus !== 'live' && listingStatus !== 'active')
+                      ? 'Not Available'
+                      : `Buy Now — ${safeCalcQty.toLocaleString('en-IN')} unit${safeCalcQty !== 1 ? 's' : ''}`}
                   </button>
 
-                  <p className="text-xs text-gray-400 text-center">
-                    GST invoice will be provided with your order
-                  </p>
-                </form>
+                  <button
+                    onClick={() => setShowNegotiation(true)}
+                    disabled={listingStatus !== 'live' && listingStatus !== 'active'}
+                    className="nm-btn-secondary w-full flex items-center justify-center gap-2 py-2.5"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    Make an Offer
+                  </button>
+                </div>
               )}
+
+              <p className="text-xs text-gray-400 text-center mt-3">
+                GST invoice will be provided with your order
+              </p>
+
+              {/* AI Marketing Button */}
+              <button
+                onClick={() => setShowMarketing(true)}
+                className="w-full mt-3 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border-2 border-nm-primary/30 bg-nm-primary-pale hover:bg-nm-primary/10 text-nm-primary-dark font-semibold text-sm transition-all"
+              >
+                <Megaphone className="w-4 h-4" />
+                Generate Marketing Content
+              </button>
+              <p className="text-xs text-center text-nm-text-muted mt-1">
+                AI captions for WhatsApp, Instagram &amp; more
+              </p>
+            </div>
+
+            {/* Quick stats */}
+            <div className="card p-4">
+              <div className="space-y-2 text-sm">
+                {l.moq && Number(l.moq) > 1 && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>Min. Order Qty</span>
+                    <span className="font-medium">{Number(l.moq).toLocaleString('en-IN')} {listingUnit}</span>
+                  </div>
+                )}
+                {l.lot_type && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>Lot Type</span>
+                    <span className="font-medium capitalize">{String(l.lot_type)}</span>
+                  </div>
+                )}
+                {l.dead_stock_type && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>Stock Type</span>
+                    <span className="font-medium capitalize">{String(l.dead_stock_type).replace(/_/g, ' ')}</span>
+                  </div>
+                )}
+                {l.view_count !== undefined && (
+                  <div className="flex justify-between text-gray-500">
+                    <span>Views</span>
+                    <span>{Number(l.view_count).toLocaleString('en-IN')}</span>
+                  </div>
+                )}
+                {l.watchlist_count !== undefined && (
+                  <div className="flex justify-between text-gray-500">
+                    <span>Watching</span>
+                    <span>{Number(l.watchlist_count).toLocaleString('en-IN')}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Escrow info box */}
+            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+              <div className="flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 text-indigo-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-indigo-800 mb-1">Escrow-Protected Payment</p>
+                  <p className="text-xs text-indigo-700 leading-relaxed">
+                    Your funds are held securely and released to the seller only after you confirm delivery.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>

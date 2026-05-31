@@ -17,7 +17,7 @@ interface Props {
 }
 
 export function OtpScreen({ navigation }: Props) {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, primaryColor } = useTheme();
   const setAuth = useAppStore(s => s.setAuth);
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
@@ -64,7 +64,7 @@ export function OtpScreen({ navigation }: Props) {
     } finally { setLoading(false); }
   }
 
-  const s = makeStyles(colors, isDark);
+  const s = makeStyles(colors, isDark, primaryColor);
 
   return (
     <KeyboardAvoidingView
@@ -144,11 +144,11 @@ export function OtpScreen({ navigation }: Props) {
   );
 }
 
-function makeStyles(colors: typeof Colors.light, isDark: boolean) {
+function makeStyles(colors: typeof Colors.light, isDark: boolean, primaryColor: string) {
   return StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: Colors.primary,
+      backgroundColor: primaryColor,
       justifyContent: 'center',
       alignItems: 'center',
       paddingHorizontal: Spacing[4],
@@ -165,7 +165,7 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
     logo: {
       fontSize: Typography['2xl'],
       fontWeight: Typography.bold,
-      color: Colors.primary,
+      color: primaryColor,
     },
     tagline: {
       fontSize: Typography.sm,
@@ -216,7 +216,7 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
       paddingVertical: Spacing[4],
     },
     btn: {
-      backgroundColor: Colors.primary,
+      backgroundColor: primaryColor,
       borderRadius: Radius.md,
       paddingVertical: Spacing[4],
       alignItems: 'center',
@@ -228,7 +228,7 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
       fontWeight: Typography.semibold,
     },
     link: { alignItems: 'center', marginTop: Spacing[4] },
-    linkText: { color: Colors.primary, fontSize: Typography.sm },
+    linkText: { color: primaryColor, fontSize: Typography.sm },
     footer: {
       color: 'rgba(255,255,255,0.6)',
       fontSize: Typography.xs,

@@ -44,7 +44,7 @@ notificationQueue?.process(async (job) => {
 
   // Fetch user contact info
   const user = await query<{ phone: string; fcm_token: string | null; name: string }>(
-    `SELECT u.phone, u.fcm_token, u.full_name as name
+    `SELECT u.phone, u.fcm_token, u.name
      FROM users u WHERE u.id = $1`,
     [userId]
   );

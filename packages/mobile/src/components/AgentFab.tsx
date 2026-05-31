@@ -24,7 +24,7 @@ interface Props {
 }
 
 export function AgentFab({ visible, onToggle, onClose }: Props) {
-  const { colors, isDark } = useTheme();
+  const { colors, isDark, primaryColor } = useTheme();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -72,7 +72,7 @@ export function AgentFab({ visible, onToggle, onClose }: Props) {
     'Automotive sector में deals?',
   ];
 
-  const s = makeStyles(colors, isDark);
+  const s = makeStyles(colors, isDark, primaryColor);
 
   return (
     <>
@@ -163,7 +163,7 @@ export function AgentFab({ visible, onToggle, onClose }: Props) {
   );
 }
 
-function makeStyles(colors: typeof Colors.light, isDark: boolean) {
+function makeStyles(colors: typeof Colors.light, isDark: boolean, primaryColor: string) {
   return StyleSheet.create({
     fabWrapper: {
       position: 'absolute',
@@ -175,7 +175,7 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
       width: 60,
       height: 60,
       borderRadius: 30,
-      backgroundColor: Colors.primary,
+      backgroundColor: primaryColor,
       justifyContent: 'center',
       alignItems: 'center',
       ...Shadow.lg,
@@ -225,13 +225,13 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
     },
     suggestions: { gap: Spacing[2], width: '100%' },
     suggestion: {
-      backgroundColor: Colors.primaryPale,
+      backgroundColor: colors.surfaceAlt,
       borderRadius: Radius.md,
       padding: Spacing[3],
       borderWidth: 1,
-      borderColor: Colors.primary + '30',
+      borderColor: colors.border,
     },
-    suggestionText: { color: Colors.primary, fontSize: Typography.sm },
+    suggestionText: { color: primaryColor, fontSize: Typography.sm },
     bubble: {
       maxWidth: '80%',
       borderRadius: Radius.lg,
@@ -239,7 +239,7 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
     },
     userBubble: {
       alignSelf: 'flex-end',
-      backgroundColor: Colors.primary,
+      backgroundColor: primaryColor,
     },
     agentBubble: {
       alignSelf: 'flex-start',
@@ -269,7 +269,7 @@ function makeStyles(colors: typeof Colors.light, isDark: boolean) {
       width: 44,
       height: 44,
       borderRadius: 22,
-      backgroundColor: Colors.primary,
+      backgroundColor: primaryColor,
       justifyContent: 'center',
       alignItems: 'center',
     },

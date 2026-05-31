@@ -4,6 +4,7 @@ import './globals.css';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { useState } from 'react';
+import { ThemeProvider } from '@/lib/theme';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -30,10 +31,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <QueryClientProvider client={queryClient}>
-          {children}
-          <Toaster richColors position="top-right" />
-        </QueryClientProvider>
+        <ThemeProvider>
+          <QueryClientProvider client={queryClient}>
+            {children}
+            <Toaster richColors position="top-right" />
+          </QueryClientProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

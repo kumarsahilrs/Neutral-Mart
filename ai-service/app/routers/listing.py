@@ -11,10 +11,10 @@ from pydantic import BaseModel
 import anthropic
 import os
 
-from app.services.ai_logger import log_ai_call, log_ai_error, estimate_cost
+from app.services.ai_logger import log_ai_call, log_ai_error
+from app.services.provider import complete, estimate_cost, active_provider
 
 router = APIRouter()
-claude = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
 
 MODEL = "claude-3-5-sonnet-20241022"
 
@@ -80,31 +80,22 @@ async def listing_prompt(req: PromptRequest):
     messages = req.conversation_history + [{"role": "user", "content": req.seller_prompt}]
 
     try:
-        response = claude.messages.create(
-            model=MODEL,
-            max_tokens=1024,
-            system=system,
-            messages=messages,
-        )
+        ai = await complete(system, req.seller_prompt, preferred_model=MODEL, max_tokens=1024, conversation_history=req.conversation_history)
         latency_ms = int((time.time() - start) * 1000)
-        content = response.content[0].text if response.content else ""
-        input_tokens = response.usage.input_tokens
-        output_tokens = response.usage.output_tokens
-        cost = estimate_cost(MODEL, input_tokens, output_tokens)
+        cost = estimate_cost(ai.model, ai.input_tokens, ai.output_tokens)
 
         await log_ai_call(
             user_id=req.user_id,
             action_type="listing_prompt",
-            model=MODEL,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            model=ai.model,
+            input_tokens=ai.input_tokens,
+            output_tokens=ai.output_tokens,
             cost_usd=cost,
             latency_ms=latency_ms,
         )
 
-        # Try to parse the JSON block from response
         import json, re
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        json_match = re.search(r'\{.*\}', ai.text, re.DOTALL)
         parsed = {}
         if json_match:
             try:
@@ -115,14 +106,18 @@ async def listing_prompt(req: PromptRequest):
         return {
             "success": True,
             "data": {
-                "raw_response": content,
+                "raw_response": ai.text,
                 "extracted_fields": parsed.get("extracted_fields", {}),
                 "missing_required": parsed.get("missing_required", []),
                 "questions": parsed.get("questions", []),
                 "confidence": parsed.get("confidence", 0.5),
                 "detected_sector": parsed.get("detected_sector", req.sector_slug),
-                "conversational_response": parsed.get("conversational_response", content),
-                "conversation_history": messages + [{"role": "assistant", "content": content}],
+                "conversational_response": parsed.get("conversational_response", ai.text),
+                "conversation_history": req.conversation_history + [
+                    {"role": "user", "content": req.seller_prompt},
+                    {"role": "assistant", "content": ai.text},
+                ],
+                "provider": active_provider(),
             }
         }
     except Exception as e:
