@@ -1,6 +1,6 @@
 ﻿[build]
 builder = "NIXPACKS"
-buildCommand = "cd /app && npm install --workspaces --if-present && npm run build --workspace=packages/shared && npm run build --workspace=packages/payment-service"
+buildCommand = "npm run build:shared && npm run build --workspace=packages/payment-service"
 
 [deploy]
 startCommand = "node packages/payment-service/dist/index.js"
