@@ -361,7 +361,7 @@ authRouter.post('/verify-phone/send', authenticate, otpRateLimiter(), async (req
   return res.json(successResponse({ message: 'OTP sent to phone' }));
 });
 
-authRouter.post('/verify-phone/confirm', authenticate, rateLimiter(), async (req: Request, res: Response) => {
+authRouter.post('/verify-phone/confirm', authenticate, rateLimiter(10), async (req: Request, res: Response) => {
   const { phone, otp } = req.body as { phone?: string; otp?: string };
   if (!phone || !otp || otp.length !== 6) return res.status(400).json(errorResponse('phone and 6-digit OTP required'));
 
@@ -404,7 +404,7 @@ authRouter.post(
 
 authRouter.post(
   '/email/otp/verify',
-  rateLimiter(),
+  rateLimiter(10),
   async (req: Request, res: Response) => {
     const schema = z.object({
       email: z.string().email(),
