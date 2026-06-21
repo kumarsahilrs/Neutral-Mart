@@ -12,6 +12,8 @@ import { adminOrdersRouter } from './routes/adminOrders';
 import { adminDisputesRouter } from './routes/adminDisputes';
 import { negotiationRouter } from './services/negotiation';
 import { initAuctionWebSocket } from './services/auction';
+import { rfqRouter } from './routes/rfq';
+import { voiceMessageRouter } from './routes/voiceMessages';
 
 const app = express();
 const PORT = process.env.ORDER_SERVICE_PORT || 3003;
@@ -26,6 +28,8 @@ app.use('/cart', cartRouter);
 app.use('/negotiations', negotiationRouter);
 app.use('/admin/transactions', adminOrdersRouter);
 app.use('/admin/disputes', adminDisputesRouter);
+app.use('/rfq', rfqRouter);
+app.use('/orders', voiceMessageRouter);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error('Unhandled error in order-service', { error: err.message, stack: err.stack });

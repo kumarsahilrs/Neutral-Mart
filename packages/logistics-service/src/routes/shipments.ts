@@ -296,3 +296,128 @@ shipmentsRouter.post(
     }
   }
 );
+
+// ── POST /shipments/special — cold chain / car carrier / digital ─────────────
+// Sprint 16: extended delivery types for specialised logistics.
+
+shipmentsRouter.post('/special', authenticate, requireRole('seller'), async (req: Request, res: Response) => {
+  const {
+    order_id,
+    delivery_type,         // 'cold_chain' | 'car_carrier' | 'digital' | 'self_pickup'
+    // cold chain fields
+    temperature_min,       // °C
+    temperature_max,
+    // car carrier fields
+    vehicle_count,
+    vehicle_models,        // string[]
+    pickup_date,
+    // digital delivery fields
+    digital_keys,          // string[] — license keys, download links
+  } = req.body;
+
+  if (!order_id || !delivery_type) return res.status(400).json(errorResponse('order_id and delivery_type required'));
+
+  const validTypes = ['cold_chain', 'car_carrier', 'digital', 'self_pickup'];
+  if (!validTypes.includes(delivery_type)) return res.status(400).json(errorResponse(`delivery_type must be one of: ${validTypes.join(', ')}`));
+
+  const order = await queryOne<{ seller_id: string; status: string; buyer_id: string }>(
+    'SELECT seller_id, status, buyer_id FROM orders WHERE id = $1', [order_id]
+  );
+  if (!order) return res.status(404).json(errorResponse('Order not found'));
+  if (order.seller_id !== req.user!.profile_id) return res.status(403).json(errorResponse('Not your order'));
+
+  const shipmentId = uuidv4();
+
+  if (delivery_type === 'digital') {
+    // Instant fulfillment — deliver license keys directly
+    if (!digital_keys || !digital_keys.length) return res.status(400).json(errorResponse('digital_keys required for digital delivery'));
+
+    await withTransaction(async (client) => {
+      await client.query(
+        `INSERT INTO shipments (id, order_id, logistics_provider, awb_number, delivery_type, digital_keys, digital_fulfilled, status)
+         VALUES ($1,$2,'digital','DIGITAL-${shipmentId.slice(0,8).toUpperCase()}','digital',$3,true,'delivered')`,
+        [shipmentId, order_id, digital_keys]
+      );
+      await client.query(
+        `UPDATE shipments SET digital_keys = $1, digital_fulfilled = true WHERE id = $2`,
+        [digital_keys, shipmentId]
+      );
+      await client.query(
+        `UPDATE orders SET status = 'delivered', shipment_id = $1, delivery_type = 'digital', updated_at = NOW() WHERE id = $2`,
+        [shipmentId, order_id]
+      );
+    });
+
+    logger.info('Digital delivery fulfilled', { shipmentId, orderId: order_id, keyCount: digital_keys.length });
+    return res.status(201).json(successResponse({
+      shipment_id: shipmentId,
+      delivery_type: 'digital',
+      digital_keys,
+      fulfilled: true,
+    }, 'Digital delivery fulfilled instantly'));
+  }
+
+  if (delivery_type === 'cold_chain') {
+    if (temperature_min === undefined || temperature_max === undefined) {
+      return res.status(400).json(errorResponse('temperature_min and temperature_max required for cold chain'));
+    }
+    await withTransaction(async (client) => {
+      await client.query(
+        `INSERT INTO shipments (id, order_id, logistics_provider, delivery_type, temperature_min, temperature_max, status, expected_delivery)
+         VALUES ($1,$2,'cold_chain_partner','cold_chain',$3,$4,'pending',$5)`,
+        [shipmentId, order_id, temperature_min, temperature_max, pickup_date ?? null]
+      );
+      await client.query(
+        `UPDATE orders SET status = 'confirmed', shipment_id = $1, delivery_type = 'cold_chain', updated_at = NOW() WHERE id = $2`,
+        [shipmentId, order_id]
+      );
+    });
+    return res.status(201).json(successResponse({
+      shipment_id: shipmentId,
+      delivery_type: 'cold_chain',
+      temperature_range: `${temperature_min}°C to ${temperature_max}°C`,
+      message: 'Cold chain shipment registered. Our team will contact you with carrier details within 2 hours.',
+    }));
+  }
+
+  if (delivery_type === 'car_carrier') {
+    if (!vehicle_count || vehicle_count < 1) return res.status(400).json(errorResponse('vehicle_count required for car carrier'));
+    await withTransaction(async (client) => {
+      await client.query(
+        `INSERT INTO shipments (id, order_id, logistics_provider, delivery_type, vehicle_count, status, expected_delivery)
+         VALUES ($1,$2,'car_carrier_partner','car_carrier',$3,'pending',$4)`,
+        [shipmentId, order_id, vehicle_count, pickup_date ?? null]
+      );
+      await client.query(
+        `UPDATE orders SET status = 'confirmed', shipment_id = $1, delivery_type = 'car_carrier', updated_at = NOW()
+         WHERE id = $2`,
+        [shipmentId, order_id]
+      );
+    });
+    return res.status(201).json(successResponse({
+      shipment_id: shipmentId,
+      delivery_type: 'car_carrier',
+      vehicle_count,
+      vehicle_models: vehicle_models ?? [],
+      message: 'Car carrier shipment registered. Estimated cost will be provided within 4 hours.',
+    }));
+  }
+
+  // self_pickup
+  await withTransaction(async (client) => {
+    await client.query(
+      `INSERT INTO shipments (id, order_id, logistics_provider, delivery_type, status)
+       VALUES ($1,$2,'self_pickup','self_pickup','pending')`,
+      [shipmentId, order_id]
+    );
+    await client.query(
+      `UPDATE orders SET status = 'confirmed', shipment_id = $1, delivery_type = 'self_pickup', updated_at = NOW() WHERE id = $2`,
+      [shipmentId, order_id]
+    );
+  });
+  return res.status(201).json(successResponse({
+    shipment_id: shipmentId,
+    delivery_type: 'self_pickup',
+    message: 'Self-pickup confirmed. Buyer will collect directly from your location.',
+  }));
+});

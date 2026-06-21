@@ -135,6 +135,20 @@ export const adminAnalyticsApi = {
     api.get('/admin/stats/demand-supply'),
   getSellerScorecard: (limit = 20) =>
     api.get(`/admin/stats/seller-scorecard?limit=${limit}`),
+
+  // Sprint 14 — Engines 5-8
+  getBuyerBehavior: (days = 7) =>
+    api.get(`/analytics/buyer-behavior?days=${days}`),
+  getSellerAcquisition: () =>
+    api.get('/analytics/seller-acquisition'),
+  getCvr: (days = 30) =>
+    api.get(`/analytics/cvr?days=${days}`),
+  getGeoDemand: (days = 30) =>
+    api.get(`/analytics/geo-demand?days=${days}`),
+  generateBoardReport: (period?: string) =>
+    api.post('/analytics/board-report', { period }),
+  getBoardReports: () =>
+    api.get('/analytics/board-reports'),
 };
 
 export const settingsApi = {

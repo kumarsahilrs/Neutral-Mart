@@ -1,10 +1,15 @@
 import { Router, Request, Response } from 'express';
-import { authenticate, requireRole, query, queryOne, successResponse } from '@nirmalmandi/shared';
+import { authenticate, requireRole, query, queryOne, successResponse, errorResponse } from '@nirmalmandi/shared';
 import { getDemandSupplyGap } from '../engines/demandSupply';
 import { getAgingRisk } from '../engines/agingRisk';
 import { getSalesVelocity } from '../engines/salesVelocity';
 import { getRevenueForecast } from '../engines/revenueForecast';
 import { getPlatformKpis } from '../engines/kpis';
+import { ingestEvent, getBuyerBehaviorSummary, type BuyerEvent } from '../engines/buyerBehavior';
+import { getSellerAcquisitionTargets } from '../engines/sellerAcquisition';
+import { getCvrSignals } from '../engines/cvrOptimization';
+import { getGeoDemand } from '../engines/geoDemand';
+import { generateBoardReport } from '../engines/boardReport';
 
 export const analyticsRouter = Router();
 analyticsRouter.use(authenticate);
@@ -89,6 +94,60 @@ analyticsRouter.get('/sector-performance', async (_req, res: Response) => {
      ORDER BY gmv_30d DESC`
   );
   res.json(successResponse(sectors));
+});
+
+// ── Engine 5: POST /analytics/events — ingest buyer events ──
+// Public endpoint — no auth (events come from anonymous visitors too).
+// Rate-limited at nginx / API gateway level in production.
+analyticsRouter.post('/events', async (req: Request, res: Response) => {
+  const event = req.body as BuyerEvent;
+  if (!event?.event_type) return res.status(400).json(errorResponse('event_type required'));
+  await ingestEvent(event).catch(() => {}); // fire and forget
+  return res.status(202).json({ ok: true });
+});
+
+// ── Engine 5: GET /analytics/buyer-behavior ─────────────────
+analyticsRouter.get('/buyer-behavior', async (req: Request, res: Response) => {
+  const days = parseInt(String(req.query.days ?? '7'), 10);
+  const data = await getBuyerBehaviorSummary(Math.min(days, 90));
+  res.json(successResponse(data));
+});
+
+// ── Engine 6: GET /analytics/seller-acquisition ─────────────
+analyticsRouter.get('/seller-acquisition', async (_req, res: Response) => {
+  const data = await getSellerAcquisitionTargets();
+  res.json(successResponse(data));
+});
+
+// ── Engine 7: GET /analytics/cvr ────────────────────────────
+analyticsRouter.get('/cvr', async (req: Request, res: Response) => {
+  const days = parseInt(String(req.query.days ?? '30'), 10);
+  const data = await getCvrSignals(Math.min(days, 90));
+  res.json(successResponse(data));
+});
+
+// ── Engine 8: GET /analytics/geo-demand ─────────────────────
+analyticsRouter.get('/geo-demand', async (req: Request, res: Response) => {
+  const days = parseInt(String(req.query.days ?? '30'), 10);
+  const data = await getGeoDemand(Math.min(days, 90));
+  res.json(successResponse(data));
+});
+
+// ── Board PDF: POST /analytics/board-report ─────────────────
+analyticsRouter.post('/board-report', async (req: Request, res: Response) => {
+  const period = String(req.body?.period ?? `${new Date().getFullYear()}-Q${Math.ceil((new Date().getMonth() + 1) / 3)}`);
+  const url = await generateBoardReport(period, req.user!.sub);
+  res.json(successResponse({ reportUrl: url, period }));
+});
+
+// ── GET /analytics/board-reports — list cached reports ──────
+analyticsRouter.get('/board-reports', async (_req, res: Response) => {
+  const rows = await query(
+    `SELECT id, period, report_url, created_at, kpi_snapshot
+     FROM board_reports
+     ORDER BY created_at DESC LIMIT 20`
+  );
+  res.json(successResponse(rows));
 });
 
 // ── GET /analytics/ai-cost — AI spend tracking ──────────────

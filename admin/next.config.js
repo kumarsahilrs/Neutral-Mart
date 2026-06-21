@@ -9,6 +9,8 @@ const ORDER     = process.env.ORDER_SERVICE_URL        || 'http://localhost:3003
 const PAYMENT   = process.env.PAYMENT_SERVICE_URL      || 'http://localhost:3005';
 const NOTIF     = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3006';
 const ANALYTICS = process.env.ANALYTICS_SERVICE_URL    || 'http://localhost:3008';
+const DISPUTE   = process.env.DISPUTE_SERVICE_URL      || 'http://localhost:3009';
+const INVOICE   = process.env.INVOICE_SERVICE_URL      || 'http://localhost:3011';
 const AI        = process.env.AI_SERVICE_URL           || 'http://localhost:8000';
 
 const nextConfig = {
@@ -32,10 +34,17 @@ const nextConfig = {
       // ── Order service ────────────────────────────────────────────────────
       { source: '/api/admin/transactions/:path*',    destination: `${ORDER}/admin/transactions/:path*` },
       { source: '/api/admin/transactions',           destination: `${ORDER}/admin/transactions` },
-      { source: '/api/admin/disputes/:path*',        destination: `${ORDER}/admin/disputes/:path*` },
-      { source: '/api/admin/disputes',               destination: `${ORDER}/admin/disputes` },
-      { source: '/api/admin/audit-log/:path*',       destination: `${ORDER}/admin/audit-log/:path*` },
-      { source: '/api/admin/audit-log',              destination: `${ORDER}/admin/audit-log` },
+
+      // ── Dispute service ──────────────────────────────────────────────────
+      { source: '/api/admin/disputes/:path*',        destination: `${DISPUTE}/admin/disputes/:path*` },
+      { source: '/api/admin/disputes',               destination: `${DISPUTE}/admin/disputes` },
+
+      // ── Invoice service ──────────────────────────────────────────────────
+      { source: '/api/invoices/:path*',              destination: `${INVOICE}/invoices/:path*` },
+
+      // ── Analytics — audit log lives here ────────────────────────────────
+      { source: '/api/admin/audit-log/:path*',       destination: `${ANALYTICS}/admin/audit-log/:path*` },
+      { source: '/api/admin/audit-log',              destination: `${ANALYTICS}/admin/audit-log` },
 
       // ── Payment service ──────────────────────────────────────────────────
       { source: '/api/admin/payouts/:path*',         destination: `${PAYMENT}/admin/payouts/:path*` },

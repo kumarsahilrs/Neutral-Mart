@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NirmalMandi — Public &amp; Visitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>html,body{margin:0;padding:0}*{box-sizing:border-box}</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="screens/shared.jsx"></script>
+<script type="text/babel" src="app/ds.jsx"></script>
+<script type="text/babel" src="app/public.jsx"></script>
+<script type="text/babel" src="app/public2.jsx"></script>
+<script type="text/babel">
+const { DesignCanvas, DCSection, DCArtboard } = window;
+function App() {
+  return (
+    <DesignCanvas>
+      <DCSection id="entry" title="Public / Visitor" subtitle="Unregistered visitor — discover, browse, and sign up. Direction A layout · warm theme · English copy.">
+        <DCArtboard id="home" label="Homepage" width={1280} height={2480}><window.Home /></DCArtboard>
+        <DCArtboard id="browse" label="Listings browse" width={1280} height={1320}><window.Browse /></DCArtboard>
+        <DCArtboard id="detail" label="Listing detail" width={1280} height={1600}><window.ListingDetail /></DCArtboard>
+      </DCSection>
+      <DCSection id="convert" title="Discover → Convert" subtitle="Compare lots, sign in, and onboard as a seller.">
+        <DCArtboard id="compare" label="Compare drawer" width={1280} height={840}><window.Compare /></DCArtboard>
+        <DCArtboard id="login" label="Buyer login (OTP)" width={1280} height={720}><window.Login /></DCArtboard>
+        <DCArtboard id="register" label="Seller registration" width={1280} height={960}><window.SellerRegister /></DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

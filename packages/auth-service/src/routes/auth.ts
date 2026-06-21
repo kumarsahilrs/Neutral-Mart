@@ -12,7 +12,7 @@ import {
   successResponse, errorResponse,
   logger,
 } from '@nirmalmandi/shared';
-import { sendOtp } from '../services/otp';
+import { sendOtp, sendEmailOtp } from '../services/otp';
 import { validateGstin } from '../services/gstn';
 import { verifyBankAccount } from '../services/kyc';
 
@@ -341,16 +341,233 @@ authRouter.post(
   }
 );
 
+// ── POST /auth/verify-phone — one-time phone verification inside profile ─────
+// Used ONLY when user signed up via email/Google and later wants to add a phone.
+// Phone is verified once → stored on users.phone → enables SMS notifications.
+
+authRouter.post('/verify-phone/send', authenticate, otpRateLimiter(), async (req: Request, res: Response) => {
+  const { phone } = req.body as { phone?: string };
+  if (!phone || !/^[6-9]\d{9}$/.test(phone)) {
+    return res.status(400).json(errorResponse('Valid 10-digit Indian mobile number required'));
+  }
+
+  // Check not already taken
+  const existing = await queryOne('SELECT id FROM users WHERE phone = $1 AND id != $2', [phone, req.user!.sub]);
+  if (existing) return res.status(409).json(errorResponse('This phone number is already linked to another account'));
+
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  await setOtp(`phone:${phone}`, otp, 120);
+  await sendOtp(phone, otp);
+  return res.json(successResponse({ message: 'OTP sent to phone' }));
+});
+
+authRouter.post('/verify-phone/confirm', authenticate, rateLimiter(), async (req: Request, res: Response) => {
+  const { phone, otp } = req.body as { phone?: string; otp?: string };
+  if (!phone || !otp || otp.length !== 6) return res.status(400).json(errorResponse('phone and 6-digit OTP required'));
+
+  const valid = await verifyAndDeleteOtp(`phone:${phone}`, otp);
+  if (!valid) return res.status(401).json(errorResponse('Invalid or expired OTP', 'OTP_INVALID'));
+
+  await queryOne('UPDATE users SET phone = $1 WHERE id = $2', [phone, req.user!.sub]);
+  logger.info('Phone number verified and linked', { userId: req.user!.sub });
+  return res.json(successResponse({ message: 'Phone number verified and linked to your account' }));
+});
+
 // ── GET /auth/kyc-upload-mock ─────────────────────────────────
 // Dev-only mock for document upload
 authRouter.put('/kyc-upload-mock', (req: Request, res: Response) => {
   res.status(200).send('OK');
 });
 
+// ── POST /auth/email/otp/send — send OTP to email ────────────────────────────
+
+authRouter.post(
+  '/email/otp/send',
+  otpRateLimiter(),
+  async (req: Request, res: Response) => {
+    const { email } = req.body as { email?: string };
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json(errorResponse('Valid email required'));
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const key = `email:${email.toLowerCase()}`;
+    await setOtp(key, otp, 120); // reuse same Redis helper, prefix key with 'email:'
+    await sendEmailOtp(email.toLowerCase(), otp);
+
+    logger.info('Email OTP sent', { email: email.replace(/(.{2}).+(@.+)/, '$1***$2') });
+    return res.json(successResponse({ message: 'OTP sent to your email' }));
+  }
+);
+
+// ── POST /auth/email/otp/verify — verify email OTP + sign in ─────────────────
+
+authRouter.post(
+  '/email/otp/verify',
+  rateLimiter(),
+  async (req: Request, res: Response) => {
+    const schema = z.object({
+      email: z.string().email(),
+      otp:   z.string().length(6),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json(errorResponse('Validation failed', 'VALIDATION_ERROR', parsed.error.issues));
+
+    const { email, otp } = parsed.data;
+    const key = `email:${email.toLowerCase()}`;
+    const valid = await verifyAndDeleteOtp(key, otp);
+    if (!valid) return res.status(401).json(errorResponse('Invalid or expired OTP', 'OTP_INVALID'));
+
+    // Find or create user by email
+    let user = await queryOne<{ id: string; role: string; phone: string; full_name: string | null }>(
+      'SELECT id, role, phone, full_name FROM users WHERE email = $1 LIMIT 1',
+      [email.toLowerCase()]
+    );
+
+    let profileId: string;
+
+    if (!user) {
+      // First-time email login — create buyer account
+      const userId = (await queryOne<{ id: string }>(
+        `INSERT INTO users (id, phone, email, full_name, role, is_verified)
+         VALUES (gen_random_uuid(), $1, $2, $3, 'buyer', true)
+         RETURNING id`,
+        [`email_${Date.now()}`, email.toLowerCase(), email.split('@')[0]]
+      ))!.id;
+
+      const profileRow = await queryOne<{ id: string }>(
+        `INSERT INTO buyer_profiles (id, user_id) VALUES (gen_random_uuid(), $1) RETURNING id`,
+        [userId]
+      );
+      profileId = profileRow!.id;
+
+      user = await queryOne<{ id: string; role: string; phone: string; full_name: string | null }>(
+        'SELECT id, role, phone, full_name FROM users WHERE id = $1',
+        [userId]
+      );
+    } else {
+      const profileRow = await queryOne<{ id: string }>(
+        `SELECT id FROM buyer_profiles WHERE user_id = $1
+         UNION ALL SELECT id FROM seller_profiles WHERE user_id = $1 LIMIT 1`,
+        [user!.id]
+      );
+      profileId = profileRow?.id ?? user!.id;
+    }
+
+    if (!user) return res.status(500).json(errorResponse('Failed to create account'));
+
+    const tokens = generateTokens(user.id, email.toLowerCase(), user.role, profileId);
+    await setSession(user.id, tokens.refresh_token, 60 * 60 * 24 * 30);
+
+    logger.info('Email OTP login', { userId: user.id });
+    return res.json(successResponse({
+      ...tokens,
+      user: { id: user.id, name: user.full_name ?? email.split('@')[0], email, role: user.role },
+      registered: true,
+    }));
+  }
+);
+
 // ── POST /auth/logout ────────────────────────────────────────
 authRouter.post('/logout', authenticate, async (req: Request, res: Response) => {
   await deleteSession(req.user!.sub);
   res.json(successResponse({ message: 'Logged out' }));
+});
+
+// ── POST /auth/google ─────────────────────────────────────────────────────────
+// Google OAuth — verify Google ID token from the client, mint our JWT.
+// Client flow:
+//   1. Client shows Google Sign-In button (Google Identity Services JS SDK)
+//   2. User signs in → Google returns an id_token
+//   3. Client POSTs { id_token } here → we verify + return our JWT
+//
+// Setup: https://console.cloud.google.com → APIs & Services → Credentials
+//   → Create OAuth 2.0 Client ID → Web application
+//   → Set GOOGLE_CLIENT_ID in env (no secret needed for ID token verify)
+
+authRouter.post('/google', async (req: Request, res: Response) => {
+  const { id_token } = req.body as { id_token?: string };
+  if (!id_token) return res.status(400).json(errorResponse('id_token required'));
+
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) return res.status(503).json(errorResponse('Google login not configured'));
+
+  try {
+    // Verify Google ID token using Google's public keys (no extra package needed)
+    const googleRes = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(id_token)}`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    const payload = await googleRes.json() as {
+      aud?: string; sub?: string; email?: string; name?: string;
+      email_verified?: string; error_description?: string;
+    };
+
+    if (payload.error_description) {
+      return res.status(401).json(errorResponse('Invalid Google token'));
+    }
+    if (payload.aud !== clientId) {
+      return res.status(401).json(errorResponse('Token audience mismatch'));
+    }
+    if (payload.email_verified !== 'true') {
+      return res.status(401).json(errorResponse('Google email not verified'));
+    }
+
+    const { sub: googleSub, email, name } = payload;
+    if (!googleSub || !email) return res.status(400).json(errorResponse('Incomplete Google profile'));
+
+    // Find or create user by google_id (using email as fallback key)
+    let user = await queryOne<{ id: string; role: string; full_name: string; google_id: string | null }>(
+      `SELECT id, role, full_name, google_id FROM users WHERE google_id = $1 OR email = $2 LIMIT 1`,
+      [googleSub, email]
+    );
+
+    if (!user) {
+      // New user — create buyer account (sellers must register via /seller-register)
+      const userId = (await queryOne<{ id: string }>(
+        `INSERT INTO users (id, phone, email, full_name, google_id, role, is_verified)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, 'buyer', true)
+         RETURNING id`,
+        [`google_${googleSub.slice(-8)}`, email, name ?? email.split('@')[0], googleSub]
+      ))!.id;
+
+      // Create buyer profile
+      await queryOne(
+        `INSERT INTO buyer_profiles (id, user_id) VALUES (gen_random_uuid(), $1) RETURNING id`,
+        [userId]
+      );
+
+      user = await queryOne<{ id: string; role: string; full_name: string; google_id: string | null }>(
+        'SELECT id, role, full_name, google_id FROM users WHERE id = $1',
+        [userId]
+      );
+    } else if (!user.google_id) {
+      // Existing user found by email — link google_id
+      await queryOne('UPDATE users SET google_id = $1, email = $2 WHERE id = $3', [googleSub, email, user.id]);
+    }
+
+    if (!user) return res.status(500).json(errorResponse('Failed to create user'));
+
+    const profileRow = await queryOne<{ id: string }>(
+      `SELECT id FROM buyer_profiles WHERE user_id = $1
+       UNION ALL SELECT id FROM seller_profiles WHERE user_id = $1 LIMIT 1`,
+      [user.id]
+    );
+    const profileId = profileRow?.id ?? user.id;
+
+    const tokens = generateTokens(user.id, email, user.role, profileId);
+    await setSession(user.id, tokens.refresh_token);
+
+    logger.info('Google login', { userId: user.id, email: email.replace(/(.{2}).+(@.+)/, '$1***$2') });
+    return res.json(successResponse({
+      ...tokens,
+      user: { id: user.id, name: user.full_name ?? name, email, role: user.role },
+      registered: true,
+    }));
+  } catch (err) {
+    logger.error('Google auth error', { error: (err as Error).message });
+    return res.status(500).json(errorResponse('Google authentication failed'));
+  }
 });
 
 // ── Helpers ──────────────────────────────────────────────────

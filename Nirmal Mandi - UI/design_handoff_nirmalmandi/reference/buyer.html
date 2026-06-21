@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NirmalMandi — Buyer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>html,body{margin:0;padding:0}*{box-sizing:border-box}</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="screens/shared.jsx"></script>
+<script type="text/babel" src="app/ds.jsx"></script>
+<script type="text/babel" src="app/public.jsx"></script>
+<script type="text/babel" src="app/buyer.jsx"></script>
+<script type="text/babel" src="app/buyer2.jsx"></script>
+<script type="text/babel">
+const { DesignCanvas, DCSection, DCArtboard } = window;
+function App() {
+  return (
+    <DesignCanvas>
+      <DCSection id="core" title="Buyer · Core" subtitle="Authenticated buyer — dashboard, orders, and the escrow-protected order journey.">
+        <DCArtboard id="dash" label="Dashboard" width={1280} height={760}><window.BuyerDashboard /></DCArtboard>
+        <DCArtboard id="orders" label="Orders list" width={1280} height={980}><window.BuyerOrders /></DCArtboard>
+        <DCArtboard id="detail" label="Order detail + escrow timeline" width={1280} height={900}><window.OrderDetail /></DCArtboard>
+        <DCArtboard id="checkout" label="Checkout" width={1280} height={1040}><window.Checkout /></DCArtboard>
+      </DCSection>
+      <DCSection id="more" title="Buyer · Engage" subtitle="Disputes, notifications, watchlist, and referrals.">
+        <DCArtboard id="dispute" label="Dispute filing" width={1280} height={780}><window.Dispute /></DCArtboard>
+        <DCArtboard id="notif" label="Notifications" width={1280} height={840}><window.Notifications /></DCArtboard>
+        <DCArtboard id="watch" label="Watchlist" width={1280} height={760}><window.Watchlist /></DCArtboard>
+        <DCArtboard id="referral" label="Referral program" width={1280} height={780}><window.Referral /></DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

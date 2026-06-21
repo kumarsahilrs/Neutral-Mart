@@ -2,92 +2,274 @@
 @tailwind components;
 @tailwind utilities;
 
-/* CSS custom property token layer — enables runtime theme switching */
+/* ── Google Fonts ────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap');
+
+/* ── Design token custom properties ──────────────────────────────────────── */
 :root {
-  --nm-primary: #2563eb;
-  --nm-primary-mid: #3b82f6;
-  --nm-primary-light: #93c5fd;
-  --nm-primary-pale: #dbeafe;
-  --nm-primary-dark: #1d4ed8;
+  --nm-ink:       #281f12;
+  --nm-paper:     #fbf5ea;
+  --nm-card:      #fffdf8;
+  --nm-panel:     #f6efe1;
+  --nm-muted:     #7a6f5d;
+  --nm-faint:     #a89c87;
+  --nm-line:      #ece1cd;
+  --nm-line-soft: #f2ebdc;
 
-  --nm-surface: #ffffff;
-  --nm-bg: #f8fafc;
-  --nm-border: #e2e8f0;
-  --nm-text: #0f172a;
-  --nm-text-muted: #64748b;
+  --nm-green:      #1f6b3a;
+  --nm-green2:     #2f8049;
+  --nm-deep:       #14492a;
+  --nm-green-soft: #e9f4ec;
 
-  --nm-success: #16a34a;
-  --nm-warning: #d97706;
-  --nm-danger: #dc2626;
+  --nm-gold:      #ef8a17;
+  --nm-gold2:     #f4a82a;
+  --nm-gold-soft: #fdeccc;
+  --nm-gold-line: #f0dcb0;
+  --nm-gold-ink:  #a9690a;
+
+  --nm-info:      #1f6b8a;
+  --nm-info-soft: #e6f2f6;
+  --nm-red:       #b6442a;
+  --nm-red-soft:  #fbe7e2;
+
+  /* Legacy aliases — keep old components working */
+  --nm-primary:      #1f6b3a;
+  --nm-primary-pale: #e9f4ec;
+  --nm-primary-dark: #14492a;
+  --nm-surface:      #fffdf8;
+  --nm-bg:           #fbf5ea;
+  --nm-border:       #ece1cd;
+  --nm-text:         #281f12;
+  --nm-text-muted:   #7a6f5d;
+  --nm-success:      #1f6b3a;
+  --nm-warning:      #a9690a;
+  --nm-danger:       #b6442a;
 }
 
-.dark {
-  --nm-surface: #1e2130;
-  --nm-bg: #0f1117;
-  --nm-border: #2d3148;
-  --nm-text: #e2e8f0;
-  --nm-text-muted: #94a3b8;
-}
-
+/* ── Base ────────────────────────────────────────────────────────────────── */
 @layer base {
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Hanken Grotesk', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-
   body {
-    @apply bg-nm-bg text-nm-text dark:bg-nm-bg-dark dark:text-nm-text-dark;
+    background: var(--nm-paper);
+    color: var(--nm-ink);
+    font-family: 'Hanken Grotesk', sans-serif;
   }
-
-  * {
-    @apply border-nm-border dark:border-nm-border-dark;
-  }
+  * { box-sizing: border-box; }
 }
 
-@layer components {
-  .nm-card {
-    @apply bg-nm-surface dark:bg-nm-surface-dark rounded-xl shadow-nm-card dark:shadow-nm-card-dark border border-nm-border dark:border-nm-border-dark;
-  }
+/* ── Typography helpers ──────────────────────────────────────────────────── */
+.font-display {
+  font-family: 'Bricolage Grotesque', sans-serif;
+  letter-spacing: -0.015em;
+}
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+.num {
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.disp {
+  font-family: 'Bricolage Grotesque', sans-serif;
+  letter-spacing: -0.015em;
+}
+.label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nm-faint);
+  font-weight: 700;
+}
 
-  .nm-btn-primary {
-    @apply bg-nm-primary hover:bg-nm-primary-dark text-white font-medium px-4 py-2 rounded-lg transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+/* ── Component layer ─────────────────────────────────────────────────────── */
+@layer components {
+
+  /* Cards */
+  .nm-card {
+    background: var(--nm-card);
+    border: 1px solid var(--nm-line);
+    border-radius: 18px;
   }
+  .card { @apply nm-card; }
+
+  /* Buttons */
+  .nm-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 600;
+    font-size: 14.5px;
+    padding: 12px 18px;
+    border-radius: 12px;
+    background: var(--nm-green);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  .nm-btn-primary:hover { background: var(--nm-deep); }
+  .nm-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .nm-btn-gold {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 600;
+    font-size: 14.5px;
+    padding: 12px 18px;
+    border-radius: 12px;
+    background: var(--nm-gold);
+    color: var(--nm-deep);
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s;
+  }
+  .nm-btn-gold:hover { background: var(--nm-gold2); }
 
   .nm-btn-secondary {
-    @apply bg-white dark:bg-nm-surface-dark border border-nm-border dark:border-nm-border-dark hover:bg-gray-50 dark:hover:bg-gray-800 text-nm-text dark:text-nm-text-dark font-medium px-4 py-2 rounded-lg transition-colors duration-150;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 600;
+    font-size: 14.5px;
+    padding: 12px 18px;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--nm-muted);
+    border: 1px solid var(--nm-line);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .nm-btn-secondary:hover { background: var(--nm-panel); color: var(--nm-ink); }
+  .nm-btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .nm-btn-soft {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 600;
+    font-size: 14.5px;
+    padding: 12px 18px;
+    border-radius: 12px;
+    background: var(--nm-green-soft);
+    color: var(--nm-green);
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
   }
 
   .nm-btn-danger {
-    @apply bg-nm-danger hover:bg-nm-danger-dark text-white font-medium px-4 py-2 rounded-lg transition-colors duration-150;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 600;
+    font-size: 14.5px;
+    padding: 12px 18px;
+    border-radius: 12px;
+    background: var(--nm-red);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    white-space: nowrap;
   }
 
+  /* Ghost-red — outline danger action */
+  .nm-btn-ghost-red {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--nm-red);
+    border: 1px solid var(--nm-red-soft);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .nm-btn-ghost-red:hover { background: var(--nm-red-soft); }
+
+  /* Legacy aliases */
+  .nm-btn-seller  { @apply nm-btn-primary; }
+  .btn-primary    { @apply nm-btn-primary; }
+  .btn-secondary  { @apply nm-btn-secondary; }
+  .btn-accent     { @apply nm-btn-gold; }
+
+  /* Inputs */
   .nm-input {
-    @apply w-full bg-white dark:bg-nm-surface-dark border border-nm-border dark:border-nm-border-dark rounded-lg px-3 py-2 text-nm-text dark:text-nm-text-dark placeholder-nm-text-muted dark:placeholder-nm-text-dark-muted focus:outline-none focus:ring-2 focus:ring-nm-primary focus:border-transparent transition-all duration-150;
+    width: 100%;
+    background: var(--nm-card);
+    border: 1px solid var(--nm-line);
+    border-radius: 12px;
+    padding: 12px 15px;
+    font-size: 14px;
+    font-family: 'Hanken Grotesk', sans-serif;
+    color: var(--nm-ink);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .nm-input::placeholder { color: var(--nm-faint); }
+  .nm-input:focus { border-color: var(--nm-green); box-shadow: 0 0 0 3px rgba(31,107,58,.12); }
+  .nm-select { @apply nm-input; cursor: pointer; }
+  .input-field { @apply nm-input; }
+  .nm-label { display: block; font-size: 12.5px; font-weight: 600; color: var(--nm-ink); margin-bottom: 7px; }
+
+  /* Pills */
+  .nm-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 999px;
+    line-height: 1.2;
   }
 
-  .nm-select {
-    @apply nm-input cursor-pointer;
-  }
+  /* Table defaults */
+  .nm-table { width: 100%; border-collapse: collapse; }
+  .nm-table th { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--nm-faint); font-weight: 700; text-align: left; padding: 0 16px 12px; }
+  .nm-table td { font-size: 13.5px; padding: 14px 16px; border-top: 1px solid var(--nm-line); color: var(--nm-ink); }
+  .nm-table td.num { font-family: 'Bricolage Grotesque', sans-serif; font-variant-numeric: tabular-nums; text-align: right; }
+  .nm-table tbody tr:hover { background: var(--nm-line-soft); }
 
-  .nm-label {
-    @apply block text-sm font-medium text-nm-text-muted dark:text-nm-text-dark-muted mb-1;
-  }
+  /* Tab bar */
+  .nm-tabbar { display: flex; gap: 6px; flex-wrap: wrap; }
+  .nm-tab { font-size: 13px; font-weight: 600; padding: 8px 15px; border-radius: 999px; cursor: pointer; color: var(--nm-muted); background: transparent; border: 1px solid var(--nm-line); transition: all 0.15s; }
+  .nm-tab.active { background: var(--nm-green); color: #fff; border-color: var(--nm-green); }
+  .nm-tab:hover:not(.active) { background: var(--nm-panel); }
 }
 
+/* ── Utilities ───────────────────────────────────────────────────────────── */
 @layer utilities {
-  .scrollbar-thin {
-    scrollbar-width: thin;
-  }
+  .scrollbar-thin { scrollbar-width: thin; }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--nm-line); border-radius: 999px; }
 
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-track {
-    @apply bg-transparent;
-  }
-
-  .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply bg-gray-300 dark:bg-gray-600 rounded-full;
-  }
+  .gradient-hero  { background: linear-gradient(100deg, #1f6b3a, #14492a); }
+  .gradient-gold  { background: linear-gradient(90deg, #ef8a17, #f4a82a); }
+  .gradient-ref   { background: linear-gradient(140deg, #1f6b3a, #14492a); }
 }

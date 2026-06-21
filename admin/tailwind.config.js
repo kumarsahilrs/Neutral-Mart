@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  darkMode: 'class',
+  // No dark mode — warm light-only palette per NirmalMandi design system
   content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -9,43 +9,72 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        'nm-primary': '#2563eb',
-        'nm-primary-dark': '#1d4ed8',
-        'nm-primary-light': '#3b82f6',
-        'nm-accent': '#16a34a',
-        'nm-accent-dark': '#15803d',
-        'nm-accent-light': '#22c55e',
-        'nm-warning': '#d97706',
-        'nm-warning-dark': '#b45309',
-        'nm-warning-light': '#f59e0b',
-        'nm-danger': '#dc2626',
-        'nm-danger-dark': '#b91c1c',
-        'nm-danger-light': '#ef4444',
-        'nm-surface': {
-          DEFAULT: '#ffffff',
-          dark: '#1e2130',
+        // ── NirmalMandi design tokens ───────────────────────────────────────
+        ink:   '#281f12',
+        paper: '#fbf5ea',
+        card:  '#fffdf8',
+        panel: '#f6efe1',
+        muted: '#7a6f5d',
+        faint: '#a89c87',
+        line: {
+          DEFAULT: '#ece1cd',
+          soft:    '#f2ebdc',
         },
-        'nm-bg': {
-          DEFAULT: '#f8fafc',
-          dark: '#0f1117',
+        green: {
+          DEFAULT: '#1f6b3a',
+          light:   '#2f8049',
+          deep:    '#14492a',
+          soft:    '#e9f4ec',
         },
-        'nm-border': {
-          DEFAULT: '#e2e8f0',
-          dark: '#2d3148',
+        gold: {
+          DEFAULT: '#ef8a17',
+          light:   '#f4a82a',
+          soft:    '#fdeccc',
+          line:    '#f0dcb0',
+          ink:     '#a9690a',
         },
+        info: {
+          DEFAULT: '#1f6b8a',
+          soft:    '#e6f2f6',
+        },
+        danger: {
+          DEFAULT: '#b6442a',
+          soft:    '#fbe7e2',
+        },
+
+        // ── Legacy aliases (for components not yet migrated) ─────────────────
+        'nm-primary':      '#1f6b3a',
+        'nm-primary-pale': '#e9f4ec',
+        'nm-primary-light':'#2f8049',
+        'nm-primary-dark': '#14492a',
+        'nm-success':      '#1f6b3a',
+        'nm-warning':      '#a9690a',
+        'nm-danger':       '#b6442a',
+        'nm-surface':      '#fffdf8',
+        'nm-bg':           '#fbf5ea',
+        'nm-border':       '#ece1cd',
         'nm-text': {
-          DEFAULT: '#0f172a',
-          muted: '#64748b',
-          dark: '#e2e8f0',
-          'dark-muted': '#94a3b8',
+          DEFAULT: '#281f12',
+          muted:   '#7a6f5d',
         },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        display: ['"Bricolage Grotesque"', 'sans-serif'],
+        sans:    ['"Hanken Grotesk"', 'sans-serif'],
+      },
+      borderRadius: {
+        btn:     '12px',
+        card:    '18px',
+        feature: '22px',
       },
       boxShadow: {
-        'nm-card': '0 1px 3px 0 rgba(0,0,0,0.08), 0 1px 2px -1px rgba(0,0,0,0.06)',
-        'nm-card-dark': '0 1px 3px 0 rgba(0,0,0,0.4)',
+        lift:  '0 16px 40px rgba(40,31,18,.12)',
+        modal: '0 30px 80px rgba(0,0,0,.3)',
+        'nm-card': '0 1px 3px rgba(40,31,18,.06)',
+      },
+      letterSpacing: {
+        display: '-0.015em',
+        tight2:  '-0.02em',
       },
     },
   },

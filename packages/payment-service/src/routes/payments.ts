@@ -35,20 +35,21 @@ async function notify(userId: string, templateKey: string, variables: string[], 
 
 // ── POST /payments/initiate ───────────────────────────────────────
 // Called by order-service after order record created. Returns Razorpay order_id + key.
+// payment_method: 'razorpay' (default) | 'bnpl' (Razorpay Pay Later)
 const initiateSchema = z.object({
-  orderId: z.string().uuid(),
-  amountPaisa: z.number().int().positive(),
-  listingId: z.string().uuid(),
-  sellerId: z.string().uuid(),
+  orderId:       z.string().uuid(),
+  amountPaisa:   z.number().int().positive(),
+  listingId:     z.string().uuid(),
+  sellerId:      z.string().uuid(),
+  payment_method: z.enum(['razorpay', 'bnpl']).default('razorpay'),
 });
 
 paymentsRouter.post('/initiate', authenticate, async (req: Request, res: Response) => {
   const parsed = initiateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json(errorResponse('Validation failed', 'VALIDATION_ERROR', parsed.error.issues));
 
-  const { orderId, amountPaisa, listingId, sellerId } = parsed.data;
+  const { orderId, amountPaisa, listingId, sellerId, payment_method } = parsed.data;
 
-  // Verify order belongs to this buyer
   const order = await queryOne<{ id: string; buyer_id: string; status: string }>(
     'SELECT id, buyer_id, status FROM orders WHERE id = $1',
     [orderId]
@@ -57,22 +58,41 @@ paymentsRouter.post('/initiate', authenticate, async (req: Request, res: Respons
   if (order.buyer_id !== req.user!.profile_id) return res.status(403).json(errorResponse('Forbidden'));
   if (order.status !== 'pending_payment') return res.status(409).json(errorResponse('Order not awaiting payment'));
 
+  // BNPL eligibility: minimum ₹1,000, max ₹2,00,000
+  if (payment_method === 'bnpl') {
+    const amountRs = amountPaisa / 100;
+    if (amountRs < 1000 || amountRs > 200000) {
+      return res.status(400).json(errorResponse('BNPL available for orders between ₹1,000 and ₹2,00,000'));
+    }
+  }
+
   try {
     const rzpOrder = await createRazorpayOrder({ amount: amountPaisa, orderId, listingId, sellerId });
 
     await query(
-      `UPDATE orders SET razorpay_order_id = $1, updated_at = NOW() WHERE id = $2`,
-      [rzpOrder.id, orderId]
+      `UPDATE orders SET razorpay_order_id = $1, payment_method = $2, updated_at = NOW() WHERE id = $3`,
+      [rzpOrder.id, payment_method, orderId]
     );
 
-    return res.json(successResponse({
+    const response: Record<string, unknown> = {
       razorpayOrderId: rzpOrder.id,
       razorpayKeyId: process.env.RAZORPAY_KEY_ID,
       amountPaisa,
       currency: 'INR',
-    }));
-  } catch (err: any) {
-    logger.error('Razorpay order creation failed', { error: err.message });
+      payment_method,
+    };
+
+    // For BNPL: provide prefill options to force Razorpay checkout into Pay Later flow
+    if (payment_method === 'bnpl') {
+      response.checkout_options = {
+        method: { paylater: 1 },  // Razorpay checkout method lock
+        prefill: { method: 'paylater' },
+      };
+    }
+
+    return res.json(successResponse(response));
+  } catch (err: unknown) {
+    logger.error('Razorpay order creation failed', { error: (err as Error).message });
     return res.status(502).json(errorResponse('Payment gateway error'));
   }
 });
@@ -117,14 +137,14 @@ paymentsRouter.post('/webhook', async (req: Request, res: Response) => {
       const payout = calculatePayout(order.total_amount, order.sector_slug);
       const gst = computeGST(payout.commission, 0.18, order.buyer_state, order.seller_state);
 
-      // Create escrow account
+      // Create escrow account — columns match escrow_accounts schema exactly
       const escrowId = (await client.query(
         `INSERT INTO escrow_accounts
-           (id, order_id, buyer_id, seller_id, total_amount, commission_amount,
-            gst_on_commission, tcs_amount, net_payout, status, razorpay_payment_id)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 'holding', $9)
+           (order_id, amount, commission, gst_on_commission,
+            tcs_amount, net_payout, status, razorpay_payment_id)
+         VALUES ($1, $2, $3, $4, $5, $6, 'held', $7)
          RETURNING id`,
-        [order.id, order.buyer_id, order.seller_id,
+        [order.id,
          payout.gross_amount, payout.commission,
          gst.total_gst, payout.tcs_amount, payout.net_payout,
          payment.id]
@@ -199,8 +219,8 @@ paymentsRouter.post('/admin/force-release', authenticate, requireRole('admin'), 
     'SELECT status, auto_release_at FROM escrow_accounts WHERE id = $1',
     [order.escrow_id]
   );
-  if (!escrow || escrow.status !== 'holding') {
-    return res.status(409).json(errorResponse('Escrow not in holding state'));
+  if (!escrow || escrow.status !== 'held') {
+    return res.status(409).json(errorResponse('Escrow not in held state'));
   }
 
   // Enforce: auto_release_at must have passed OR dispute_resolved flag set
@@ -277,17 +297,21 @@ async function releaseEscrow(
     net_payout: number; status: string;
   }>('SELECT net_payout, status FROM escrow_accounts WHERE id = $1', [escrowId]);
 
-  if (!escrow || escrow.status !== 'holding') {
-    throw new Error('Escrow not in holding state');
+  if (!escrow || escrow.status !== 'held') {
+    throw new Error('Escrow not in held state');
   }
 
   // Get seller's linked account
-  const seller = await queryOne<{ razorpay_linked_account_id: string | null; bank_account_verified: boolean }>(
-    'SELECT razorpay_linked_account_id, bank_account_verified FROM seller_profiles WHERE id = $1',
+  const seller = await queryOne<{ razorpay_linked_account_id: string | null; bank_verified: boolean }>(
+    `SELECT sp.razorpay_linked_account_id,
+            COALESCE(ba.is_verified, false) AS bank_verified
+     FROM seller_profiles sp
+     LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
+     WHERE sp.id = $1`,
     [sellerId]
   );
 
-  if (!seller?.razorpay_linked_account_id || !seller.bank_account_verified) {
+  if (!seller?.razorpay_linked_account_id || !seller.bank_verified) {
     throw new Error('Seller bank account not verified');
   }
 

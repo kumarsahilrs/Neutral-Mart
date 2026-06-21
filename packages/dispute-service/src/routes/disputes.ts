@@ -48,10 +48,15 @@ disputesRouter.post('/raise', authenticate, async (req: Request, res: Response) 
 
   const order = await queryOne<{
     id: string; buyer_id: string; seller_id: string; status: string; order_number: string;
-  }>('SELECT id, buyer_id, seller_id, status, order_number FROM orders WHERE id = $1', [orderId]);
+    seller_user_id: string;
+  }>(`SELECT o.id, o.buyer_id, o.seller_id, o.status, o.order_number,
+             sp.user_id AS seller_user_id
+      FROM orders o
+      JOIN seller_profiles sp ON sp.id = o.seller_id
+      WHERE o.id = $1`, [orderId]);
 
   if (!order) return res.status(404).json(errorResponse('Order not found'));
-  if (order.buyer_id !== req.user!.sub) return res.status(403).json(errorResponse('Only buyer can raise dispute'));
+  if (order.buyer_id !== req.user!.profile_id) return res.status(403).json(errorResponse('Only buyer can raise dispute'));
   if (!['paid', 'shipped', 'delivered', 'completed'].includes(order.status)) {
     return res.status(409).json(errorResponse('Cannot raise dispute for this order status'));
   }
@@ -84,8 +89,8 @@ disputesRouter.post('/raise', authenticate, async (req: Request, res: Response) 
     );
   });
 
-  // Notify seller and admin
-  await notify(order.seller_id, 'DISPUTE_RAISED', [order.order_number]);
+  // Notify seller and admin (notify expects user_id, not profile_id)
+  await notify(order.seller_user_id, 'DISPUTE_RAISED', [order.order_number]);
 
   // Get all admins and notify
   const admins = await query<{ id: string }>(`SELECT id FROM users WHERE role = 'admin' LIMIT 5`);
@@ -108,7 +113,7 @@ disputesRouter.post('/:id/evidence', authenticate, async (req: Request, res: Res
   );
   if (!dispute) return res.status(404).json(errorResponse('Dispute not found'));
 
-  const isParty = [dispute.buyer_id, dispute.seller_id].includes(req.user!.sub);
+  const isParty = [dispute.buyer_id, dispute.seller_id].includes(req.user!.profile_id);
   if (!isParty) return res.status(403).json(errorResponse('Forbidden'));
   if (['resolved', 'closed'].includes(dispute.status)) {
     return res.status(409).json(errorResponse('Dispute already closed'));
@@ -152,7 +157,7 @@ disputesRouter.get('/:id', authenticate, async (req: Request, res: Response) => 
   );
   if (!dispute) return res.status(404).json(errorResponse('Dispute not found'));
 
-  const isParty = [dispute.buyer_id, dispute.seller_id].includes(req.user!.sub);
+  const isParty = [dispute.buyer_id, dispute.seller_id].includes(req.user!.profile_id);
   const isAdmin = req.user!.role === 'admin';
   if (!isParty && !isAdmin) return res.status(403).json(errorResponse('Forbidden'));
 
@@ -161,13 +166,13 @@ disputesRouter.get('/:id', authenticate, async (req: Request, res: Response) => 
 
 // â”€â”€ GET /disputes/my â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 disputesRouter.get('/my', authenticate, async (req: Request, res: Response) => {
-  const userId = req.user!.sub;
+  const profileId = req.user!.profile_id;
   const rows = await query(
     `SELECT d.id, d.reason, d.status, d.sla_deadline, d.created_at, o.order_number
      FROM disputes d JOIN orders o ON d.order_id = o.id
      WHERE d.buyer_id = $1 OR d.seller_id = $1
      ORDER BY d.created_at DESC`,
-    [userId]
+    [profileId]
   );
   return res.json(successResponse(rows));
 });
@@ -183,7 +188,7 @@ disputesRouter.post('/:id/message', authenticate, async (req: Request, res: Resp
   );
   if (!dispute) return res.status(404).json(errorResponse('Dispute not found'));
 
-  const isParty = [dispute.buyer_id, dispute.seller_id].includes(req.user!.sub);
+  const isParty = [dispute.buyer_id, dispute.seller_id].includes(req.user!.profile_id);
   const isAdmin = req.user!.role === 'admin';
   if (!isParty && !isAdmin) return res.status(403).json(errorResponse('Forbidden'));
 
@@ -209,8 +214,17 @@ disputesRouter.post('/:id/resolve', authenticate, requireRole('admin'), async (r
 
   const dispute = await queryOne<{
     id: string; order_id: string; buyer_id: string; seller_id: string; status: string; order_number: string;
+    buyer_user_id: string; seller_user_id: string;
   }>(
-    `SELECT d.*, o.order_number FROM disputes d JOIN orders o ON d.order_id = o.id WHERE d.id = $1`,
+    `SELECT d.id, d.order_id, d.buyer_id, d.seller_id, d.status,
+            o.order_number,
+            bp.user_id AS buyer_user_id,
+            sp.user_id AS seller_user_id
+     FROM disputes d
+     JOIN orders o ON d.order_id = o.id
+     JOIN buyer_profiles bp ON bp.id = d.buyer_id
+     JOIN seller_profiles sp ON sp.id = d.seller_id
+     WHERE d.id = $1`,
     [req.params.id]
   );
   if (!dispute) return res.status(404).json(errorResponse('Dispute not found'));
@@ -256,9 +270,9 @@ disputesRouter.post('/:id/resolve', authenticate, requireRole('admin'), async (r
     }
   });
 
-  // Notify both parties
-  await notify(dispute.buyer_id, 'DISPUTE_RAISED', [dispute.order_number, `Resolved: ${outcome}`]);
-  await notify(dispute.seller_id, 'DISPUTE_RAISED', [dispute.order_number, `Resolved: ${outcome}`]);
+  // Notify both parties (notify expects user_id, not profile_id)
+  await notify(dispute.buyer_user_id, 'DISPUTE_RAISED', [dispute.order_number, `Resolved: ${outcome}`]);
+  await notify(dispute.seller_user_id, 'DISPUTE_RAISED', [dispute.order_number, `Resolved: ${outcome}`]);
 
   logger.info('Dispute resolved', {
     disputeId: dispute.id, outcome, adminId: req.user!.sub,
@@ -274,8 +288,10 @@ disputesRouter.get('/admin/queue', authenticate, requireRole('admin'), async (re
             ub.full_name as buyer_name, us.full_name as seller_name
      FROM disputes d
      JOIN orders o ON d.order_id = o.id
-     JOIN users ub ON d.buyer_id = ub.id
-     JOIN users us ON d.seller_id = us.id
+     JOIN buyer_profiles bp ON bp.id = d.buyer_id
+     JOIN users ub ON ub.id = bp.user_id
+     JOIN seller_profiles sp ON sp.id = d.seller_id
+     JOIN users us ON us.id = sp.user_id
      WHERE d.status IN ('open', 'under_review')
      ORDER BY
        CASE WHEN d.sla_deadline < NOW() THEN 0 ELSE 1 END,

@@ -5,18 +5,18 @@ AI extracts all structured fields. No traditional forms.
 """
 import time
 import base64
+import json
+import re
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-import anthropic
-import os
 
 from app.services.ai_logger import log_ai_call, log_ai_error
-from app.services.provider import complete, estimate_cost, active_provider
+from app.services.provider import complete, estimate_cost, active_provider, get_client, GPT4O
 
 router = APIRouter()
 
-MODEL = "claude-3-5-sonnet-20241022"
+MODEL = GPT4O
 
 SECTOR_LIST = [
     "automobiles", "clothing", "furniture", "fmcg", "pharma", "software", "machinery"
@@ -127,23 +127,19 @@ async def listing_prompt(req: PromptRequest):
 
 @router.post("/vision")
 async def listing_vision(req: VisionRequest):
-    """
-    Analyze product image and extract visible listing fields.
-    """
+    """Analyze product image and extract visible listing fields (gpt-4o vision)."""
     start = time.time()
     try:
-        response = claude.messages.create(
+        resp = await get_client().chat.completions.create(
             model=MODEL,
             max_tokens=512,
             messages=[{
                 "role": "user",
                 "content": [
                     {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": req.image_mime,
-                            "data": req.image_base64,
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{req.image_mime};base64,{req.image_base64}",
                         },
                     },
                     {"type": "text", "text": VISION_PROMPT},
@@ -151,10 +147,9 @@ async def listing_vision(req: VisionRequest):
             }],
         )
         latency_ms = int((time.time() - start) * 1000)
-        content = response.content[0].text if response.content else ""
-        input_tokens = response.usage.input_tokens
-        output_tokens = response.usage.output_tokens
-        cost = estimate_cost(MODEL, input_tokens, output_tokens)
+        content = resp.choices[0].message.content or ""
+        input_tokens = resp.usage.prompt_tokens
+        output_tokens = resp.usage.completion_tokens
 
         await log_ai_call(
             user_id=req.user_id,
@@ -162,11 +157,10 @@ async def listing_vision(req: VisionRequest):
             model=MODEL,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cost_usd=cost,
+            cost_usd=estimate_cost(MODEL, input_tokens, output_tokens),
             latency_ms=latency_ms,
         )
 
-        import json, re
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         parsed = {}
         if json_match:
@@ -183,37 +177,33 @@ async def listing_vision(req: VisionRequest):
 
 @router.post("/category/suggest")
 async def suggest_category(body: dict):
-    """
-    If no sector matches with >60% confidence, Claude generates a new category.
-    """
+    """If no sector matches >60% confidence, AI generates a new category."""
     description = body.get("description", "")
     start = time.time()
     try:
-        response = claude.messages.create(
-            model=MODEL,
+        ai = await complete(
+            system="You are NirmalMandi's category manager.",
+            user_message=(
+                f'A seller described their product as: "{description}"\n'
+                'This does not match any existing sector well. Generate a new category for NirmalMandi.\n'
+                'Return JSON: { "name": "", "slug": "", "description": "", '
+                '"schema_fields": [{ "key": "", "label": "", "type": "text|number|date|select", '
+                '"required": true/false, "options": [] }] }'
+            ),
+            preferred_model=MODEL,
             max_tokens=512,
-            messages=[{
-                "role": "user",
-                "content": f"""A seller described their product as: "{description}"
-This does not match any existing sector well. Generate a new category for NirmalMandi.
-Return JSON: {{ "name": "", "slug": "", "description": "", "schema_fields": [{{ "key": "", "label": "", "type": "text|number|date|select", "required": true/false, "options": [] }}] }}"""
-            }],
         )
         latency_ms = int((time.time() - start) * 1000)
-        content = response.content[0].text if response.content else ""
-        input_tokens = response.usage.input_tokens
-        output_tokens = response.usage.output_tokens
         await log_ai_call(
             user_id=body.get("user_id"),
             action_type="listing_prompt",
-            model=MODEL,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost_usd=estimate_cost(MODEL, input_tokens, output_tokens),
+            model=ai.model,
+            input_tokens=ai.input_tokens,
+            output_tokens=ai.output_tokens,
+            cost_usd=estimate_cost(ai.model, ai.input_tokens, ai.output_tokens),
             latency_ms=latency_ms,
         )
-        import json, re
-        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        json_match = re.search(r'\{.*\}', ai.text, re.DOTALL)
         parsed = json.loads(json_match.group()) if json_match else {}
         return {"success": True, "data": parsed}
     except Exception as e:

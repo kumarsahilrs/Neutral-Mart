@@ -1,60 +1,42 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
-  ArrowLeft, Package, MapPin, Tag, IndianRupee, ShoppingCart,
-  CheckCircle, AlertCircle, Loader2, Calculator, BadgeCheck, Zap, Megaphone, MessageCircle, Bookmark, BookmarkCheck,
+  ArrowLeft, Package, MapPin, BadgeCheck, ShoppingCart,
+  Heart, Loader2, Shield, Megaphone, MessageCircle, FileText, ShieldAlert, Minus, Plus,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import Header from '@/components/Header';
+import { TopNav, Badge } from '@/components/ui';
 import MarketingPanel from '@/components/MarketingPanel';
 import NegotiationModal from '@/components/NegotiationModal';
-import AuctionPanel from '@/components/AuctionPanel';
-import api, { inventoryApi } from '@/lib/api';
-import { isAuthenticated } from '@/lib/auth';
+import RfqModal from '@/components/RfqModal';
+import api, { inventoryApi, complianceApi, aiApi } from '@/lib/api';
+import { isAuthenticated, getUser } from '@/lib/auth';
 
-const INDIAN_STATES = [
-  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
-  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
-  'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
-  'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
-  'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
-  'Delhi', 'Jammu & Kashmir', 'Ladakh',
-];
+const GRADE_STYLES: Record<string, [string, string]> = {
+  A: ['#1f6b3a', '#e9f4ec'],
+  B: ['#281f12', '#efe9dd'],
+  C: ['#a9690a', '#fdeccc'],
+  D: ['#b6442a', '#fbe7e2'],
+};
 
 export default function ListingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
 
   const [calcQuantity, setCalcQuantity] = useState(1);
-  const [showMarketing, setShowMarketing] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return new URLSearchParams(window.location.search).get('market') === '1';
-  });
+  const [showMarketing, setShowMarketing] = useState(false);
   const [showNegotiation, setShowNegotiation] = useState(false);
+  const [showRfq, setShowRfq] = useState(false);
   const [watchlisted, setWatchlisted] = useState(false);
   const [watchlistLoading, setWatchlistLoading] = useState(false);
-
-  async function handleWatchlist() {
-    if (!isAuthenticated()) { toast.error('Login to save listings'); router.push('/login'); return; }
-    setWatchlistLoading(true);
-    try {
-      if (watchlisted) {
-        await api.delete(`/buyer/watchlist/${String(l.id)}`);
-        setWatchlisted(false);
-        toast.success('Removed from watchlist');
-      } else {
-        await api.post('/buyer/watchlist', { listing_id: String(l.id) });
-        setWatchlisted(true);
-        toast.success('Saved to watchlist');
-      }
-    } catch { toast.error('Could not update watchlist'); }
-    finally { setWatchlistLoading(false); }
-  }
+  const [compliance, setCompliance] = useState<{ compliant: boolean; missing: string[]; warning_message: string | null; document_labels: Record<string, string> } | null>(null);
+  const [selectedImg, setSelectedImg] = useState(0);
+  const [aiCaption, setAiCaption] = useState('');
+  const [captionLoading, setCaptionLoading] = useState(false);
 
   const { data: listing, isLoading, isError } = useQuery({
     queryKey: ['listing', id],
@@ -63,233 +45,167 @@ export default function ListingDetailPage() {
     enabled: !!id,
   });
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <Header />
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!id || !isAuthenticated()) return;
+    const user = getUser();
+    if (user?.role !== 'buyer') return;
+    complianceApi.check(id as string)
+      .then(r => { const d = (r.data as { data: typeof compliance }).data; if (d && !d.compliant) setCompliance(d); })
+      .catch(() => {});
+  }, [id]);
 
-  if (isError || !listing) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <Header />
-        <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
-          <AlertCircle className="w-12 h-12 text-red-400" />
-          <h2 className="text-xl font-semibold text-gray-800">Listing not found</h2>
-          <p className="text-gray-500 text-sm">This listing may have been removed or does not exist.</p>
-          <Link href="/listings" className="btn-primary">Browse all listings</Link>
-        </div>
+  if (isLoading) return (
+    <div style={{ minHeight: '100vh', background: 'var(--nm-paper)' }}>
+      <TopNav />
+      <div className="flex items-center justify-center" style={{ paddingTop: 120 }}>
+        <Loader2 size={36} style={{ color: 'var(--nm-green)' }} className="animate-spin" />
       </div>
-    );
-  }
+    </div>
+  );
 
-  // Normalize field names
+  if (isError || !listing) return (
+    <div style={{ minHeight: '100vh', background: 'var(--nm-paper)' }}>
+      <TopNav />
+      <div className="flex flex-col items-center justify-center gap-4 text-center" style={{ paddingTop: 120 }}>
+        <Package size={56} style={{ color: 'var(--nm-faint)' }} />
+        <h2 className="disp" style={{ fontSize: 22, fontWeight: 700, color: 'var(--nm-ink)' }}>Listing not found</h2>
+        <Link href="/listings" className="nm-btn-primary no-underline">Browse all listings</Link>
+      </div>
+    </div>
+  );
+
   const l = listing as Record<string, unknown>;
   const pricePerUnit = Number(l.asking_price ?? l.price_per_unit ?? 0);
-  const availableQty = Number(l.available_quantity ?? l.quantity ?? 0);
-  const sectorName = String(l.sector_name ?? l.sector ?? '—');
-  const sellerLocation = [l.city ?? l.seller_city, l.state ?? l.seller_state].filter(Boolean).join(', ') || '—';
-  const listingTitle = String(l.title ?? '');
-  const listingDesc = l.description ? String(l.description) : null;
-  const listingUnit = String(l.unit ?? 'unit');
-  const listingStatus = String(l.status ?? 'unknown');
-  const urgencyDays = l.urgency_days ? Number(l.urgency_days) : 0;
-  const mrp = l.mrp ? Number(l.mrp) : null;
-  const gstRate = Number(l.gst_rate ?? 18);
+  const availableQty  = Number(l.available_quantity ?? l.quantity ?? 0);
+  const sectorName    = String(l.sector_name ?? l.sector ?? '—');
+  const sellerCity    = String(l.city ?? l.seller_city ?? '');
+  const sellerState   = String(l.state ?? l.seller_state ?? '');
+  const sellerLocation = [sellerCity, sellerState].filter(Boolean).join(', ');
+  const listingTitle  = String(l.title ?? '');
+  const listingStatus = String(l.status ?? '');
+  const urgencyDays   = l.urgency_days ? Number(l.urgency_days) : 0;
+  const mrp           = l.mrp ? Number(l.mrp) : null;
   const conditionGrade = l.condition_grade ? String(l.condition_grade) : null;
-  const sellerVerificationTier = l.seller_verification_tier
-    ? String(l.seller_verification_tier)
-    : (l.seller_tier ? String(l.seller_tier) : null);
-  const isVerifiedSeller = sellerVerificationTier === 'verified' || sellerVerificationTier === 'premium';
-  const sellerBusinessName = l.seller_business_name ? String(l.seller_business_name) : null;
-  const sectorSpecificFields = l.sector_specific_fields && typeof l.sector_specific_fields === 'object'
-    ? l.sector_specific_fields as Record<string, unknown>
-    : null;
+  const sellerName    = l.seller_business_name ? String(l.seller_business_name) : null;
+  const isVerified    = ['verified','premium'].includes(String(l.seller_verification_tier ?? ''));
+  const images        = Array.isArray(l.images) ? (l.images as string[]) : [];
+  const moq           = l.moq ? Number(l.moq) : 1;
+  const stockType     = l.stock_type ? String(l.stock_type).replace(/_/g, ' ') : '';
 
-  // Lot calculator derived values
-  const safeCalcQty = Math.max(1, Math.min(availableQty || 1, calcQuantity));
-  const calcTotal = pricePerUnit * safeCalcQty;
-  const estimatedResale = mrp ? mrp * safeCalcQty : null;
-  const estimatedMargin = mrp && mrp > 0 ? (((mrp - pricePerUnit) / mrp) * 100).toFixed(1) : null;
+  const safeQty    = Math.max(moq, Math.min(availableQty || 9999, calcQuantity));
+  const subtotal   = pricePerUnit * safeQty;
+  const platFee    = subtotal * 0.025;
+  const youPay     = subtotal + platFee;
+  const savePct    = mrp && mrp > pricePerUnit ? Math.round((1 - pricePerUnit / mrp) * 100) : 0;
+  const reselEst   = subtotal * 1.53;
+  const marginAmt  = reselEst - subtotal;
+  const marginPct  = Math.round((marginAmt / subtotal) * 100);
 
-  function handleBuyNow() {
-    if (!isAuthenticated()) {
-      toast.error('Please login to place an order');
-      router.push('/login');
-      return;
-    }
-    router.push(`/checkout?listing_id=${String(l.id)}&quantity=${safeCalcQty}`);
+  const [gradeColor, gradeBg] = GRADE_STYLES[conditionGrade ?? 'B'] ?? GRADE_STYLES.B;
+
+  async function handleWatchlist() {
+    if (!isAuthenticated()) { toast.error('Login to save listings'); router.push('/login'); return; }
+    setWatchlistLoading(true);
+    try {
+      if (watchlisted) { await api.delete(`/buyer/watchlist/${String(l.id)}`); setWatchlisted(false); toast.success('Removed from watchlist'); }
+      else { await api.post('/buyer/watchlist', { listing_id: String(l.id) }); setWatchlisted(true); toast.success('Saved to watchlist'); }
+    } catch { toast.error('Could not update watchlist'); } finally { setWatchlistLoading(false); }
+  }
+
+  async function generateCaption(platform: 'whatsapp' | 'instagram') {
+    setCaptionLoading(true);
+    try {
+      const res = await aiApi.generateCaption({ listing_id: String(l.id), product_title: listingTitle, sector: sectorName, price: pricePerUnit, mrp: mrp ?? undefined, grade: conditionGrade ?? 'B', city: sellerCity, state: sellerState, language: 'hi', tone: 'urgent', platform });
+      const d = (res.data as unknown as { data: { full_caption: string } }).data;
+      setAiCaption(d?.full_caption ?? '');
+    } catch { toast.error('Caption generation failed'); } finally { setCaptionLoading(false); }
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Header />
+    <div style={{ minHeight: '100vh', background: 'var(--nm-paper)' }}>
+      <TopNav />
 
+      {/* Modals */}
       {showNegotiation && (
-        <NegotiationModal
-          listing={{
-            id: String(l.id ?? ''),
-            title: listingTitle,
-            asking_price: pricePerUnit,
-            mrp: mrp ?? undefined,
-            sector: sectorName,
-            floor_price: l.floor_price ? Number(l.floor_price) : undefined,
-          }}
+        <NegotiationModal listing={{ id: String(l.id ?? ''), title: listingTitle, asking_price: pricePerUnit, mrp: mrp ?? undefined, sector: sectorName, floor_price: l.floor_price ? Number(l.floor_price) : undefined }}
           onClose={() => setShowNegotiation(false)}
-          onAccepted={(agreedPrice, negId) => {
-            router.push(`/checkout?listing_id=${String(l.id)}&quantity=${safeCalcQty}&agreed_price=${agreedPrice}&negotiation_id=${negId}`);
-          }}
-        />
+          onAccepted={(agreedPrice, negId) => router.push(`/checkout?listing_id=${String(l.id)}&quantity=${safeQty}&agreed_price=${agreedPrice}&negotiation_id=${negId}`)} />
+      )}
+      {showRfq && (
+        <RfqModal listing={{ id: String(l.id ?? ''), title: listingTitle, asking_price: pricePerUnit, moq, available_quantity: availableQty }} onClose={() => setShowRfq(false)} />
+      )}
+      {showMarketing && (
+        <MarketingPanel listing={{ id: String(l.id ?? ''), title: listingTitle, sector_name: sectorName, asking_price: pricePerUnit, mrp: mrp ?? undefined, condition_grade: conditionGrade ?? undefined, city: sellerCity, state: sellerState }} onClose={() => setShowMarketing(false)} />
       )}
 
-      {showMarketing && (
-        <MarketingPanel
-          listing={{
-            id: String(l.id ?? ''),
-            title: listingTitle,
-            sector_name: sectorName,
-            asking_price: pricePerUnit,
-            mrp: mrp ?? undefined,
-            condition_grade: conditionGrade ?? undefined,
-            city: String(l.city ?? l.seller_city ?? ''),
-            state: String(l.state ?? l.seller_state ?? ''),
-          }}
-          onClose={() => setShowMarketing(false)}
-        />
+      {/* Urgency bar */}
+      {urgencyDays > 0 && (
+        <div className="gradient-gold flex items-center justify-between px-8 py-2.5">
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: '#fff' }}>
+            ⚡ Ageing {urgencyDays} days · seller is open to offers
+          </span>
+        </div>
       )}
-      <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
-        {/* Back */}
-        <Link
-          href="/listings"
-          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-primary-600 font-medium mb-6 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to listings
+
+      <div style={{ maxWidth: 1160, margin: '0 auto', padding: '28px 28px 0' }}>
+        <Link href="/listings" className="no-underline inline-flex items-center gap-1.5 mb-6" style={{ fontSize: 13.5, color: 'var(--nm-muted)', fontWeight: 600 }}>
+          <ArrowLeft size={15} /> Back to listings
         </Link>
 
-        {/* Urgency banner */}
-        {urgencyDays > 0 && (
-          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6">
-            <Zap className="w-4 h-4 text-amber-600 flex-shrink-0" />
-            <p className="text-sm font-medium text-amber-800">
-              Must sell in {urgencyDays} day{urgencyDays !== 1 ? 's' : ''} — seller is liquidating urgently
-            </p>
+        {/* Compliance warning */}
+        {compliance && !compliance.compliant && (
+          <div className="flex items-start gap-3 mb-6" style={{ background: 'var(--nm-gold-soft)', border: '1px solid var(--nm-gold-line)', borderRadius: 16, padding: '14px 18px' }}>
+            <ShieldAlert size={18} style={{ color: 'var(--nm-gold-ink)', flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--nm-gold-ink)', margin: 0 }}>Compliance Required</p>
+              <p style={{ fontSize: 12.5, color: 'var(--nm-gold-ink)', margin: '4px 0 0', opacity: 0.85 }}>{compliance.warning_message}</p>
+            </div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left: Listing details */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Image area */}
-            <div className="card overflow-hidden">
-              {Array.isArray(l.images) && (l.images as string[]).length > 0 ? (
-                <img
-                  src={(l.images as string[])[0]}
-                  alt={listingTitle}
-                  className="w-full h-64 object-cover"
-                />
+        {/* Main 2-col */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 32, alignItems: 'start' }}>
+
+          {/* ── Left: Gallery + specs ─────────────────────────────────── */}
+          <div>
+            {/* Main image */}
+            <div className="nm-card overflow-hidden relative" style={{ borderRadius: 18, marginBottom: 12, aspectRatio: '4/3', background: 'var(--nm-panel)' }}>
+              {savePct > 0 && (
+                <span className="nm-pill absolute top-3 left-3 z-10" style={{ background: 'var(--nm-gold)', color: 'var(--nm-deep)', fontWeight: 800 }}>−{savePct}%</span>
+              )}
+              {(listingStatus === 'flash_sale' || String(l.price_type) === 'flash_sale') && (
+                <span className="nm-pill absolute top-3 right-3 z-10" style={{ background: '#b6442a', color: '#fff', fontWeight: 700 }}>🔥 Flash</span>
+              )}
+              {images[selectedImg] ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={images[selectedImg]} alt={listingTitle} className="w-full h-full object-cover" />
               ) : (
-                <div className="bg-gradient-to-br from-primary-50 to-primary-100 h-64 flex items-center justify-center">
-                  <Package className="w-20 h-20 text-primary-300" />
+                <div className="w-full h-full flex items-center justify-center">
+                  <Package size={80} style={{ color: 'var(--nm-faint)' }} />
                 </div>
               )}
             </div>
 
-            {/* Info */}
-            <div className="card p-6">
-              <div className="flex flex-wrap items-start gap-3 mb-4">
-                <span className="badge bg-primary-50 text-primary-700">
-                  <Tag className="w-3 h-3 mr-1" />
-                  {sectorName}
-                </span>
-                <span className={`badge ${listingStatus === 'live' || listingStatus === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                  {listingStatus}
-                </span>
-                {conditionGrade && (
-                  <span className="badge bg-blue-50 text-blue-700">
-                    Grade: {conditionGrade}
-                  </span>
-                )}
+            {/* Thumbnails */}
+            {images.length > 1 && (
+              <div className="flex gap-2 mb-6">
+                {images.slice(0, 4).map((img, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={i} src={img} alt="" onClick={() => setSelectedImg(i)} className="object-cover cursor-pointer"
+                    style={{ width: 72, height: 72, borderRadius: 10, border: `${selectedImg === i ? '2px solid var(--nm-green)' : '1.5px solid var(--nm-line)'}` }} />
+                ))}
               </div>
+            )}
 
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">{listingTitle}</h1>
-
-              <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500 mb-4">
-                <span className="flex items-center gap-1.5">
-                  <MapPin className="w-4 h-4 flex-shrink-0" />
-                  {sellerLocation}
-                </span>
-                {sellerBusinessName && (
-                  <span className="flex items-center gap-1.5">
-                    {isVerifiedSeller ? (
-                      <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-full border border-blue-200">
-                        <BadgeCheck className="w-3 h-3" />
-                        Verified Seller
-                      </span>
-                    ) : null}
-                    <span>{sellerBusinessName}</span>
-                  </span>
-                )}
-              </div>
-
-              {listingDesc && (
-                <div className="mb-6">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">Description</h3>
-                  <p className="text-sm text-gray-600 leading-relaxed">{listingDesc}</p>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-6 border-t border-gray-100">
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Price per {listingUnit}</p>
-                  <p className="flex items-center text-xl font-bold text-gray-900">
-                    <IndianRupee className="w-4 h-4" />
-                    {pricePerUnit.toLocaleString('en-IN')}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">Available Quantity</p>
-                  <p className="text-xl font-bold text-accent-600">
-                    {availableQty.toLocaleString('en-IN')} {listingUnit}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 mb-0.5">GST Rate</p>
-                  <p className="text-xl font-bold text-gray-900">{gstRate}%</p>
-                </div>
-                {mrp && (
-                  <div>
-                    <p className="text-xs text-gray-500 mb-0.5">MRP</p>
-                    <p className="text-lg font-semibold text-gray-700">₹{mrp.toLocaleString('en-IN')}</p>
-                  </div>
-                )}
-                {estimatedMargin && (
-                  <div>
-                    <p className="text-xs text-gray-500 mb-0.5">Potential Margin</p>
-                    <p className="text-lg font-bold text-green-600">{estimatedMargin}%</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Sector-specific fields */}
-            {sectorSpecificFields && Object.keys(sectorSpecificFields).length > 0 && (
-              <div className="card p-6">
-                <h3 className="text-base font-semibold text-gray-900 mb-4">Product Specifications</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
-                  {Object.entries(sectorSpecificFields).map(([key, value]) => (
-                    <div key={key} className="flex justify-between border-b border-gray-100 pb-2">
-                      <span className="text-sm text-gray-500 capitalize">
-                        {key.replace(/_/g, ' ')}
-                      </span>
-                      <span className="text-sm font-medium text-gray-800 text-right max-w-[60%]">
-                        {String(value)}
-                      </span>
+            {/* Lot specs */}
+            {l.attributes && typeof l.attributes === 'object' && (
+              <div className="nm-card" style={{ padding: '18px 20px' }}>
+                <h3 className="disp" style={{ fontSize: 14, fontWeight: 700, margin: '0 0 14px', color: 'var(--nm-ink)' }}>Lot specifications</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 24px' }}>
+                  {Object.entries(l.attributes as Record<string, unknown>).map(([k, v]) => (
+                    <div key={k}>
+                      <p style={{ fontSize: 11, color: 'var(--nm-faint)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>{k}</p>
+                      <p style={{ fontSize: 13.5, color: 'var(--nm-ink)', margin: '2px 0 0' }}>{String(v)}</p>
                     </div>
                   ))}
                 </div>
@@ -297,186 +213,155 @@ export default function ListingDetailPage() {
             )}
           </div>
 
-          {/* Right: Auction / Lot Calculator + Order CTA */}
-          <div className="lg:col-span-1 space-y-4">
-            {/* Auction Panel — shown only for auction listings */}
-            {(String(l.price_type) === 'auction' || String(l.pricing_mode) === 'auction') && (
-              <AuctionPanel
-                listingId={String(l.id ?? '')}
-                askingPrice={pricePerUnit}
-                reservePrice={l.auction_reserve_price ? Number(l.auction_reserve_price) : null}
-                auctionEndsAt={l.auction_ends_at ? String(l.auction_ends_at) : null}
-                onLoginRequired={() => router.push('/login')}
-              />
-            )}
+          {/* ── Right: Info + Calculator ──────────────────────────────── */}
+          <div className="flex flex-col gap-5">
+            {/* Pills */}
+            <div className="flex gap-2 flex-wrap">
+              <span className="nm-pill" style={{ color: 'var(--nm-green)', background: 'var(--nm-green-soft)', fontSize: 12 }}>{sectorName}</span>
+              {conditionGrade && <span className="nm-pill" style={{ color: gradeColor, background: gradeBg, fontSize: 12 }}>Grade {conditionGrade}</span>}
+              {isVerified && <span className="nm-pill" style={{ color: 'var(--nm-green)', background: 'var(--nm-green-soft)', fontSize: 12 }}><BadgeCheck size={12} /> Verified seller</span>}
+            </div>
 
-            {/* Lot Calculator */}
-            <div className="card p-6">
-              <div className="flex items-center gap-2 mb-5">
-                <Calculator className="w-5 h-5 text-primary-600" />
-                <h2 className="text-lg font-bold text-gray-900">Calculate Your Order</h2>
+            {/* Title */}
+            <h1 className="disp" style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.2, color: 'var(--nm-ink)', margin: 0 }}>{listingTitle}</h1>
+
+            {/* Seller */}
+            <p style={{ fontSize: 13.5, color: 'var(--nm-muted)', margin: 0 }}>
+              by <strong style={{ color: 'var(--nm-ink)' }}>{sellerName ?? 'Seller'}</strong>
+              {sellerLocation && <span> · <MapPin size={12} style={{ display: 'inline', verticalAlign: 'middle' }} /> {sellerLocation}</span>}
+            </p>
+
+            {/* Price */}
+            <div>
+              <span className="num" style={{ fontSize: 44, fontWeight: 800, color: 'var(--nm-green)', fontFamily: '"Bricolage Grotesque",sans-serif', letterSpacing: '-0.02em' }}>
+                ₹{pricePerUnit.toLocaleString('en-IN')}
+              </span>
+              <span style={{ fontSize: 13.5, color: 'var(--nm-faint)', textDecoration: 'line-through', marginLeft: 10 }}>
+                {mrp ? `₹${mrp.toLocaleString('en-IN')}` : ''}
+              </span>
+              {mrp && <span style={{ fontSize: 13, color: 'var(--nm-muted)', marginLeft: 8 }}>Resale est. ₹{Math.round(pricePerUnit * 1.53).toLocaleString('en-IN')}</span>}
+            </div>
+
+            {/* Lot calculator */}
+            <div style={{ background: 'var(--nm-gold-soft)', border: '1px solid var(--nm-gold-line)', borderRadius: 18, padding: 20 }}>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="disp" style={{ fontSize: 15, fontWeight: 700, color: 'var(--nm-ink)', margin: 0 }}>Lot calculator</h3>
+                <span style={{ fontSize: 12, color: 'var(--nm-gold-ink)', fontWeight: 600 }}>MOQ {moq} · Partial lot OK</span>
               </div>
 
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Quantity ({listingUnit})
-                </label>
-                <input
-                  type="number"
-                  value={calcQuantity}
-                  onChange={(e) => setCalcQuantity(Math.max(1, Math.min(availableQty || 999999, Number(e.target.value))))}
-                  min={1}
-                  max={availableQty}
-                  className="input-field"
-                />
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Max: {availableQty.toLocaleString('en-IN')} {listingUnit}
-                </p>
-              </div>
-
-              <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-2.5 text-sm mb-5">
-                <div className="flex justify-between text-gray-700">
-                  <span>Total Price</span>
-                  <span className="font-bold text-gray-900">
-                    ₹{calcTotal.toLocaleString('en-IN')}
-                  </span>
-                </div>
-                <div className="flex justify-between text-gray-600">
-                  <span>Per Unit Cost</span>
-                  <span>₹{pricePerUnit.toLocaleString('en-IN')}</span>
-                </div>
-                {estimatedResale !== null && (
-                  <div className="flex justify-between text-gray-600">
-                    <span>Est. Resale Value</span>
-                    <span className="text-green-700 font-medium">
-                      ₹{estimatedResale.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                )}
-                {estimatedMargin !== null && (
-                  <div className="flex justify-between border-t border-gray-200 pt-2 text-gray-600">
-                    <span>Est. Margin</span>
-                    <span className="font-bold text-green-600">{estimatedMargin}%</span>
-                  </div>
-                )}
-              </div>
-
-              {!isAuthenticated() ? (
-                <div className="text-center">
-                  <AlertCircle className="w-8 h-8 text-amber-400 mx-auto mb-2" />
-                  <p className="text-sm text-gray-600 mb-4">Login required to place orders</p>
-                  <Link href="/login" className="btn-primary block w-full text-center">
-                    Login to Order
-                  </Link>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <button
-                    onClick={handleBuyNow}
-                    disabled={listingStatus !== 'live' && listingStatus !== 'active'}
-                    className="nm-btn-seller w-full flex items-center justify-center gap-2 py-2.5"
-                  >
-                    <ShoppingCart className="w-4 h-4" />
-                    {(listingStatus !== 'live' && listingStatus !== 'active')
-                      ? 'Not Available'
-                      : `Buy Now — ${safeCalcQty.toLocaleString('en-IN')} unit${safeCalcQty !== 1 ? 's' : ''}`}
-                  </button>
-
-                  <button
-                    onClick={() => setShowNegotiation(true)}
-                    disabled={listingStatus !== 'live' && listingStatus !== 'active'}
-                    className="nm-btn-secondary w-full flex items-center justify-center gap-2 py-2.5"
-                  >
-                    <MessageCircle className="w-4 h-4" />
-                    Make an Offer
-                  </button>
-                </div>
-              )}
-
-              <p className="text-xs text-gray-400 text-center mt-3">
-                GST invoice will be provided with your order
-              </p>
-
-              {/* Watchlist + Marketing buttons */}
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={handleWatchlist}
-                  disabled={watchlistLoading}
-                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
-                    watchlisted
-                      ? 'border-amber-300 bg-amber-50 text-amber-700'
-                      : 'border-nm-border dark:border-nm-border-dark hover:border-nm-primary/40 text-nm-text-muted dark:text-nm-text-dark-muted'
-                  }`}
-                >
-                  {watchlisted
-                    ? <><BookmarkCheck className="w-4 h-4" /> Saved</>
-                    : <><Bookmark className="w-4 h-4" /> Watchlist</>
-                  }
+              {/* Quantity stepper */}
+              <div className="flex items-center gap-3 mb-4">
+                <button onClick={() => setCalcQuantity(q => Math.max(moq, q - (moq || 1)))}
+                  className="flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--nm-deep)', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                  <Minus size={16} />
                 </button>
-                <button
-                  onClick={() => setShowMarketing(true)}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border-2 border-nm-primary/30 bg-nm-primary-pale hover:bg-nm-primary/10 text-nm-primary-dark font-semibold text-sm transition-all"
-                >
-                  <Megaphone className="w-4 h-4" />
-                  Market It
+                <input type="number" value={calcQuantity} onChange={e => setCalcQuantity(Math.max(moq, Math.min(availableQty, Number(e.target.value) || moq)))}
+                  className="text-center num" style={{ width: 80, padding: '8px', borderRadius: 10, border: '1px solid var(--nm-gold-line)', background: 'var(--nm-card)', fontSize: 18, fontWeight: 700, fontFamily: '"Bricolage Grotesque",sans-serif', outline: 'none' }} />
+                <button onClick={() => setCalcQuantity(q => Math.min(availableQty, q + (moq || 1)))}
+                  className="flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--nm-deep)', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                  <Plus size={16} />
                 </button>
               </div>
-              <p className="text-xs text-center text-nm-text-muted mt-1">
-                AI captions for WhatsApp, Instagram &amp; more
-              </p>
+
+              {/* Breakdown */}
+              <div className="flex flex-col gap-2 mb-3">
+                {[
+                  ['Subtotal', `₹${subtotal.toLocaleString('en-IN')}`],
+                  ['Platform fee 2.5%', `₹${platFee.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`],
+                ].map(([label, val]) => (
+                  <div key={label} className="flex justify-between" style={{ fontSize: 13.5, color: 'var(--nm-muted)' }}>
+                    <span>{label}</span><span className="num" style={{ color: 'var(--nm-ink)' }}>{val}</span>
+                  </div>
+                ))}
+                <div style={{ borderTop: '1.5px dashed var(--nm-gold-line)', margin: '4px 0' }} />
+                <div className="flex justify-between" style={{ fontSize: 15, fontWeight: 700, color: 'var(--nm-ink)' }}>
+                  <span>You pay</span><span className="num">₹{youPay.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                </div>
+              </div>
+
+              {/* Margin result */}
+              <div style={{ background: 'var(--nm-green-soft)', borderRadius: 12, padding: '12px 16px', textAlign: 'center' }}>
+                <span className="disp" style={{ fontSize: 14, fontWeight: 700, color: 'var(--nm-green)' }}>
+                  Est. resale margin +₹{Math.round(marginAmt).toLocaleString('en-IN')} ≈ {marginPct}% margin
+                </span>
+              </div>
+            </div>
+
+            {/* CTAs */}
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                <button onClick={() => { if (!isAuthenticated()) { router.push('/login'); return; } router.push(`/checkout?listing_id=${String(l.id)}&quantity=${safeQty}`); }}
+                  disabled={listingStatus !== 'live' && listingStatus !== 'active'}
+                  className="nm-btn-primary flex-1" style={{ padding: '13px', fontSize: 15 }}>
+                  <ShoppingCart size={16} /> Buy now
+                </button>
+                <button onClick={() => { if (!isAuthenticated()) { router.push('/login'); return; } setShowNegotiation(true); }}
+                  className="nm-btn-gold flex-1" style={{ padding: '13px', fontSize: 15 }}>
+                  <MessageCircle size={16} /> Make offer
+                </button>
+                <button onClick={handleWatchlist} disabled={watchlistLoading}
+                  className="flex items-center justify-center" style={{ width: 48, height: 48, borderRadius: 12, border: '1px solid var(--nm-line)', background: 'var(--nm-card)', cursor: 'pointer', flexShrink: 0 }}>
+                  <Heart size={18} fill={watchlisted ? 'var(--nm-red)' : 'none'} style={{ color: watchlisted ? 'var(--nm-red)' : 'var(--nm-muted)' }} />
+                </button>
+              </div>
+              <button onClick={() => setShowRfq(true)} className="nm-btn-secondary w-full" style={{ padding: '11px' }}>
+                <FileText size={15} /> Request Bulk Quote (RFQ)
+              </button>
             </div>
 
             {/* Quick stats */}
-            <div className="card p-4">
-              <div className="space-y-2 text-sm">
-                {!!l.moq && Number(l.moq) > 1 && (
-                  <div className="flex justify-between text-gray-600">
-                    <span>Min. Order Qty</span>
-                    <span className="font-medium">{Number(l.moq).toLocaleString('en-IN')} {listingUnit}</span>
-                  </div>
-                )}
-                {!!l.lot_type && (
-                  <div className="flex justify-between text-gray-600">
-                    <span>Lot Type</span>
-                    <span className="font-medium capitalize">{String(l.lot_type)}</span>
-                  </div>
-                )}
-                {!!l.dead_stock_type && (
-                  <div className="flex justify-between text-gray-600">
-                    <span>Stock Type</span>
-                    <span className="font-medium capitalize">{String(l.dead_stock_type).replace(/_/g, ' ')}</span>
-                  </div>
-                )}
-                {l.view_count !== undefined && (
-                  <div className="flex justify-between text-gray-500">
-                    <span>Views</span>
-                    <span>{Number(l.view_count).toLocaleString('en-IN')}</span>
-                  </div>
-                )}
-                {l.watchlist_count !== undefined && (
-                  <div className="flex justify-between text-gray-500">
-                    <span>Watching</span>
-                    <span>{Number(l.watchlist_count).toLocaleString('en-IN')}</span>
-                  </div>
-                )}
-              </div>
+            <div className="flex gap-4 flex-wrap" style={{ fontSize: 13, color: 'var(--nm-muted)' }}>
+              <span>{availableQty.toLocaleString('en-IN')} units available</span>
+              {l.view_count && <span>· {Number(l.view_count).toLocaleString('en-IN')} watching</span>}
+              {stockType && <span>· {stockType}</span>}
             </div>
 
-            {/* Escrow info box */}
-            <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
-              <div className="flex items-start gap-2">
-                <CheckCircle className="w-4 h-4 text-indigo-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-indigo-800 mb-1">Escrow-Protected Payment</p>
-                  <p className="text-xs text-indigo-700 leading-relaxed">
-                    Your funds are held securely and released to the seller only after you confirm delivery.
-                  </p>
+            {/* Escrow box */}
+            <div className="flex items-start gap-3" style={{ background: 'var(--nm-green-soft)', borderRadius: 16, padding: '16px 18px' }}>
+              <span className="flex items-center justify-center flex-shrink-0" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--nm-green)', color: '#fff' }}>
+                <Shield size={18} />
+              </span>
+              <p style={{ fontSize: 13, color: 'var(--nm-green)', lineHeight: 1.5, margin: 0 }}>
+                <strong>Escrow-protected payment</strong> — we hold your payment until you confirm the lot is received as described.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── AI Market-it panel ───────────────────────────────────────── */}
+        <div style={{ margin: '32px 0 48px', background: 'var(--nm-deep)', borderRadius: 24, padding: '36px 40px' }}>
+          {/* blobs */}
+          <div style={{ position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', right: -40, top: -40, width: 200, height: 200, borderRadius: '50%', background: 'rgba(244,168,42,.1)', pointerEvents: 'none' }} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, alignItems: 'center' }}>
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--nm-gold)', margin: '0 0 10px' }}>AI MARKET-IT</p>
+                <h2 className="disp" style={{ fontSize: 24, fontWeight: 800, color: '#fff', margin: '0 0 10px', lineHeight: 1.2 }}>Won the lot? Resell it in one tap.</h2>
+                <p style={{ fontSize: 14, color: 'rgba(255,255,255,.65)', margin: '0 0 20px', lineHeight: 1.5 }}>Generate a ready-to-share caption for WhatsApp or Instagram in seconds.</p>
+                <div className="flex gap-3">
+                  <button onClick={() => generateCaption('whatsapp')} disabled={captionLoading} className="nm-btn-gold" style={{ fontSize: 13.5 }}>
+                    {captionLoading ? <Loader2 size={14} className="animate-spin" /> : '💬'} WhatsApp caption
+                  </button>
+                  <button onClick={() => generateCaption('instagram')} disabled={captionLoading}
+                    className="flex items-center gap-2" style={{ padding: '12px 18px', borderRadius: 12, background: 'transparent', color: '#fff', border: '1.5px solid rgba(255,255,255,.3)', cursor: 'pointer', fontSize: 13.5, fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 600 }}>
+                    📸 Instagram
+                  </button>
+                  <button onClick={() => setShowMarketing(true)} className="flex items-center gap-2" style={{ padding: '12px 18px', borderRadius: 12, background: 'transparent', color: 'rgba(255,255,255,.65)', border: '1px solid rgba(255,255,255,.2)', cursor: 'pointer', fontSize: 13, fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 600 }}>
+                    <Megaphone size={14} /> More options
+                  </button>
                 </div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.12)', borderRadius: 16, padding: 18, minHeight: 120 }}>
+                {aiCaption ? (
+                  <p style={{ fontSize: 13, color: 'rgba(255,255,255,.9)', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>{aiCaption}</p>
+                ) : (
+                  <p style={{ fontSize: 13, color: 'rgba(255,255,255,.3)', fontStyle: 'italic', margin: 0 }}>Your AI-generated caption will appear here…</p>
+                )}
               </div>
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

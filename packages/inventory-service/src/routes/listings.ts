@@ -270,3 +270,44 @@ listingsRouter.post(
     }
   }
 );
+
+// ── GET /listings/:id/compliance ─────────────────────────────────────────────
+// Checks whether the authenticated buyer meets the sector's compliance requirements.
+// Returns { compliant: bool, missing: string[], warning_message: string, required_documents: string[] }
+
+listingsRouter.get('/:id/compliance', authenticate, async (req: Request, res: Response) => {
+  const listing = await queryOne<{ sector_id: string }>(
+    'SELECT sector_id FROM listings WHERE id = $1', [req.params.id]
+  );
+  if (!listing) return res.status(404).json(errorResponse('Listing not found'));
+
+  const sector = await queryOne<{ compliance_rules: Record<string, unknown> }>(
+    'SELECT compliance_rules FROM sectors WHERE id = $1', [listing.sector_id]
+  );
+  const rules = sector?.compliance_rules ?? {};
+  const required: string[] = (rules.required_documents as string[]) ?? [];
+
+  if (required.length === 0) {
+    return res.json(successResponse({ compliant: true, missing: [], required_documents: [], warning_message: null }));
+  }
+
+  // Only buyers need compliance checks
+  if (req.user!.role !== 'buyer') {
+    return res.json(successResponse({ compliant: true, missing: [], required_documents: required, warning_message: null }));
+  }
+
+  const buyer = await queryOne<{ compliance_documents: Record<string, unknown> }>(
+    'SELECT compliance_documents FROM buyer_profiles WHERE id = $1', [req.user!.profile_id]
+  );
+  const docs = buyer?.compliance_documents ?? {};
+  const missing = required.filter(d => !docs[d]);
+
+  return res.json(successResponse({
+    compliant: missing.length === 0,
+    missing,
+    required_documents: required,
+    document_labels: (rules.document_labels ?? {}) as Record<string, string>,
+    warning_message: missing.length > 0 ? rules.warning_message ?? null : null,
+    check_before: rules.check_before ?? 'checkout',
+  }));
+});

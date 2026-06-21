@@ -7,13 +7,13 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.services.provider import complete, estimate_cost, active_provider
+from app.services.provider import complete, estimate_cost, active_provider, GPT4O, GPT4O_MINI
 from app.services.ai_logger import log_ai_call
 
 router = APIRouter()
 
-SONNET = "claude-3-5-sonnet-20241022"
-HAIKU  = "claude-3-haiku-20240307"   # maps to gpt-4o-mini via provider
+SONNET = GPT4O
+HAIKU  = GPT4O_MINI
 
 PRICING_SYSTEM = """You are a pricing expert for NirmalMandi, India's dead inventory marketplace.
 Recommend an optimal liquidation price for this listing.

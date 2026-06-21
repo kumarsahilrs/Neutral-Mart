@@ -2,411 +2,181 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Bell, Megaphone, Search, Loader2, CheckCircle2, X } from 'lucide-react';
+import { toast } from 'sonner';
+import AdminShell from '@/components/ui/AdminShell';
 import { notificationsAdminApi } from '@/lib/api';
-import {
-  Bell, Send, RefreshCw, Search, X, CheckCircle2, AlertCircle,
-  Megaphone, MessageSquare, ChevronDown, Loader2,
-} from 'lucide-react';
 
-interface NotificationLog extends Record<string, unknown> {
-  id: string;
-  type: string;
-  title: string;
-  body: string;
-  channel: string;
-  isRead: boolean;
-  sentAt: string;
-  userId: string;
-  userName: string;
-  userPhone: string;
-}
+interface NotificationLog { id: string; type?: string; title: string; body: string; channel?: string; isRead?: boolean; sentAt?: string; userName?: string; userPhone?: string; }
 
-interface LogsResponse {
-  rows: NotificationLog[];
-  total: number;
-}
+const CHANNELS = ['', 'whatsapp', 'push', 'sms'];
+const CH_LABELS: Record<string, string> = { '': 'All', whatsapp: 'WhatsApp', push: 'Push', sms: 'SMS' };
+const TYPE_COLORS: Record<string, [string, string]> = {
+  order: ['var(--nm-green)', 'var(--nm-green-soft)'],
+  payment: ['var(--nm-gold-ink)', 'var(--nm-gold-soft)'],
+  dispute: ['var(--nm-red)', 'var(--nm-red-soft)'],
+  system: ['var(--nm-info)', 'var(--nm-info-soft)'],
+  kyc: ['var(--nm-green)', 'var(--nm-green-soft)'],
+};
 
-const CHANNEL_OPTIONS = [
-  { value: '', label: 'All Channels' },
-  { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'push', label: 'Push' },
-  { value: 'sms', label: 'SMS' },
-];
-
-const TARGET_OPTIONS = [
-  { value: '', label: 'All Users' },
-  { value: 'buyer', label: 'Buyers Only' },
-  { value: 'seller', label: 'Sellers Only' },
-];
-
-const PAGE_SIZE = 30;
+function fmtDateTime(d: string) { return new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); }
 
 function BroadcastPanel({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
-  const [form, setForm] = useState({
-    title: '',
-    message: '',
-    channel: 'push',
-    targetRole: '',
-  });
+  const [form, setForm] = useState({ title: '', message: '', channel: 'push', targetRole: '' });
   const [sent, setSent] = useState<{ queued: number; targetRole: string } | null>(null);
-  const [error, setError] = useState('');
 
-  const broadcastMutation = useMutation({
+  const mut = useMutation({
     mutationFn: () => notificationsAdminApi.broadcast(form),
-    onSuccess: (res) => {
-      const d = res.data?.data as { queued: number; targetRole: string };
-      setSent(d);
-      qc.invalidateQueries({ queryKey: ['notification-logs'] });
-    },
-    onError: (err: any) => {
-      setError(err?.response?.data?.error || 'Failed to send broadcast');
-    },
+    onSuccess: (res) => { setSent((res.data as { data: typeof sent }).data); qc.invalidateQueries({ queryKey: ['admin-notification-logs'] }); },
+    onError: () => toast.error('Broadcast failed'),
   });
 
-  if (sent) {
-    return (
-      <div className="text-center py-6">
-        <CheckCircle2 size={40} className="mx-auto text-green-500 mb-3" />
-        <p className="font-semibold text-nm-text dark:text-nm-text-dark">Broadcast queued!</p>
-        <p className="text-sm text-nm-text-muted dark:text-nm-text-dark-muted mt-1">
-          {sent.queued} notification{sent.queued !== 1 ? 's' : ''} queued for{' '}
-          {sent.targetRole === 'all' ? 'all users' : sent.targetRole + 's'}
-        </p>
-        <button onClick={onClose} className="mt-4 nm-btn-secondary text-sm">Done</button>
-      </div>
-    );
-  }
+  if (sent) return (
+    <div className="text-center py-6">
+      <CheckCircle2 size={40} style={{ color: 'var(--nm-green)', margin: '0 auto 12px' }} />
+      <p className="disp" style={{ fontSize: 16, fontWeight: 700, color: 'var(--nm-ink)' }}>Broadcast queued!</p>
+      <p style={{ fontSize: 13.5, color: 'var(--nm-muted)', marginTop: 4 }}>{sent.queued} notifications queued for {sent.targetRole === 'all' ? 'all users' : sent.targetRole + 's'}</p>
+      <button onClick={onClose} className="nm-btn-secondary mt-4">Done</button>
+    </div>
+  );
 
   return (
-    <form
-      onSubmit={(e) => { e.preventDefault(); setError(''); broadcastMutation.mutate(); }}
-      className="space-y-4"
-    >
-      {error && (
-        <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400 rounded-lg text-sm">
-          <AlertCircle size={14} />
-          {error}
-        </div>
-      )}
-
+    <form onSubmit={e => { e.preventDefault(); mut.mutate(); }} className="flex flex-col gap-4">
       <div>
-        <label className="block text-xs font-semibold text-nm-text-muted dark:text-nm-text-dark-muted mb-1">
-          Notification Title <span className="text-red-500">*</span>
-        </label>
-        <input
-          type="text"
-          required
-          maxLength={100}
-          value={form.title}
-          onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
-          placeholder="e.g. Weekend Flash Sale Alert"
-          className="w-full border border-nm-border dark:border-nm-border-dark bg-white dark:bg-gray-700 rounded-lg px-3 py-2.5 text-sm text-nm-text dark:text-nm-text-dark focus:outline-none focus:ring-2 focus:ring-nm-primary"
-        />
+        <label className="nm-label">Title *</label>
+        <input required value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className="nm-input" placeholder="e.g. Weekend Flash Sale" />
       </div>
-
       <div>
-        <label className="block text-xs font-semibold text-nm-text-muted dark:text-nm-text-dark-muted mb-1">
-          Message <span className="text-red-500">*</span>
-        </label>
-        <textarea
-          required
-          maxLength={500}
-          rows={4}
-          value={form.message}
-          onChange={(e) => setForm((p) => ({ ...p, message: e.target.value }))}
-          placeholder="Enter your broadcast message…"
-          className="w-full border border-nm-border dark:border-nm-border-dark bg-white dark:bg-gray-700 rounded-lg px-3 py-2.5 text-sm text-nm-text dark:text-nm-text-dark focus:outline-none focus:ring-2 focus:ring-nm-primary resize-none"
-        />
-        <p className="text-xs text-nm-text-muted dark:text-nm-text-dark-muted mt-1 text-right">
-          {form.message.length}/500
-        </p>
+        <label className="nm-label">Message *</label>
+        <textarea required rows={3} value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))}
+          className="nm-input resize-none" placeholder="Enter broadcast message…" />
+        <p style={{ fontSize: 11.5, color: 'var(--nm-faint)', textAlign: 'right', marginTop: 3 }}>{form.message.length}/500</p>
       </div>
-
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-semibold text-nm-text-muted dark:text-nm-text-dark-muted mb-1">Channel</label>
-          <div className="relative">
-            <select
-              value={form.channel}
-              onChange={(e) => setForm((p) => ({ ...p, channel: e.target.value }))}
-              className="w-full appearance-none border border-nm-border dark:border-nm-border-dark bg-white dark:bg-gray-700 rounded-lg pl-3 pr-8 py-2.5 text-sm text-nm-text dark:text-nm-text-dark focus:outline-none focus:ring-2 focus:ring-nm-primary"
-            >
-              <option value="push">Push Notification</option>
-              <option value="whatsapp">WhatsApp</option>
-              <option value="sms">SMS</option>
-              <option value="all">All Channels</option>
-            </select>
-            <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-nm-text-muted pointer-events-none" />
-          </div>
+          <label className="nm-label">Channel</label>
+          <select value={form.channel} onChange={e => setForm(f => ({ ...f, channel: e.target.value }))} className="nm-select">
+            <option value="push">Push</option><option value="whatsapp">WhatsApp</option><option value="sms">SMS</option><option value="all">All channels</option>
+          </select>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-nm-text-muted dark:text-nm-text-dark-muted mb-1">Target Audience</label>
-          <div className="relative">
-            <select
-              value={form.targetRole}
-              onChange={(e) => setForm((p) => ({ ...p, targetRole: e.target.value }))}
-              className="w-full appearance-none border border-nm-border dark:border-nm-border-dark bg-white dark:bg-gray-700 rounded-lg pl-3 pr-8 py-2.5 text-sm text-nm-text dark:text-nm-text-dark focus:outline-none focus:ring-2 focus:ring-nm-primary"
-            >
-              {TARGET_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-nm-text-muted pointer-events-none" />
-          </div>
+          <label className="nm-label">Target</label>
+          <select value={form.targetRole} onChange={e => setForm(f => ({ ...f, targetRole: e.target.value }))} className="nm-select">
+            <option value="">All users</option><option value="buyer">Buyers only</option><option value="seller">Sellers only</option>
+          </select>
         </div>
       </div>
-
-      <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg px-3 py-2.5 text-xs text-yellow-800 dark:text-yellow-300 flex items-start gap-2">
-        <AlertCircle size={13} className="mt-0.5 shrink-0" />
-        This will send to <strong>all active {form.targetRole || 'users'}</strong>. This action cannot be undone.
-      </div>
-
-      <div className="flex justify-end gap-3">
-        <button type="button" onClick={onClose} className="nm-btn-secondary text-sm">Cancel</button>
-        <button
-          type="submit"
-          disabled={broadcastMutation.isPending}
-          className="nm-btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
-        >
-          {broadcastMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-          Send Broadcast
+      <div className="flex gap-3">
+        <button type="button" onClick={onClose} className="nm-btn-secondary flex-1">Cancel</button>
+        <button type="submit" disabled={!form.title || !form.message || mut.isPending} className="nm-btn-primary flex-1">
+          {mut.isPending && <Loader2 size={14} className="animate-spin" />}
+          <Megaphone size={14} /> Send broadcast
         </button>
       </div>
     </form>
   );
 }
 
-function ChannelBadge({ channel }: { channel: string }) {
-  const map: Record<string, string> = {
-    whatsapp: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-    push: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    sms: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-    all: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
-  };
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${map[channel] ?? map.all}`}>
-      {channel}
-    </span>
-  );
-}
-
 export default function NotificationsPage() {
-  const [searchInput, setSearchInput] = useState('');
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [channelFilter, setChannelFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [applied, setApplied] = useState('');
+  const [channel, setChannel] = useState('');
   const [page, setPage] = useState(1);
   const [showBroadcast, setShowBroadcast] = useState(false);
 
-  const queryParams: Record<string, string | number> = { page, limit: PAGE_SIZE };
-  if (channelFilter) queryParams.channel = channelFilter;
-  if (appliedSearch) queryParams.search = appliedSearch;
-
-  const { data, isLoading, refetch } = useQuery({
-    queryKey: ['notification-logs', page, channelFilter, appliedSearch],
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin-notification-logs', channel, applied, page],
     queryFn: async () => {
-      const res = await notificationsAdminApi.getLogs(queryParams);
-      return (res.data?.data ?? { rows: [], total: 0 }) as LogsResponse;
+      const p: Record<string, string | number> = { page, limit: 30 };
+      if (channel) p.channel = channel;
+      if (applied) p.search = applied;
+      const res = await notificationsAdminApi.getLogs(p);
+      const d = (res.data as { data?: { rows?: NotificationLog[]; total?: number } })?.data;
+      return { rows: d?.rows ?? [], total: d?.total ?? 0 };
     },
-    retry: 1,
   });
 
   const logs = data?.rows ?? [];
   const total = data?.total ?? 0;
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-
-  const applySearch = () => { setAppliedSearch(searchInput.trim()); setPage(1); };
-  const clearSearch = () => { setSearchInput(''); setAppliedSearch(''); setPage(1); };
+  const totalPages = Math.max(1, Math.ceil(total / 30));
 
   return (
-    <div className="p-6 space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-nm-text dark:text-nm-text-dark flex items-center gap-2">
-            <Bell size={22} />
-            Notifications
-          </h1>
-          <p className="text-sm text-nm-text-muted dark:text-nm-text-dark-muted mt-0.5">
-            {total > 0 ? `${total.toLocaleString('en-IN')} notifications sent` : 'System notification centre'}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => refetch()} className="nm-btn-secondary flex items-center gap-2 text-sm">
-            <RefreshCw size={14} />
-            Refresh
-          </button>
-          <button
-            onClick={() => setShowBroadcast(true)}
-            className="nm-btn-primary flex items-center gap-2 text-sm"
-          >
-            <Megaphone size={14} />
-            Broadcast
-          </button>
-        </div>
-      </div>
-
-      {/* Broadcast Panel */}
+    <AdminShell
+      title={`${total > 0 ? `${total.toLocaleString('en-IN')} notifications` : 'Notifications'}`}
+      subtitle="System notification centre"
+      actions={
+        <button onClick={() => setShowBroadcast(b => !b)} className="nm-btn-primary flex items-center gap-2" style={{ fontSize: 13 }}>
+          <Megaphone size={14} /> Broadcast
+        </button>
+      }
+    >
       {showBroadcast && (
-        <div className="nm-card p-5">
+        <div className="nm-card mb-5" style={{ padding: 24 }}>
           <div className="flex items-center gap-2 mb-4">
-            <MessageSquare size={18} className="text-nm-primary" />
-            <h2 className="font-semibold text-nm-text dark:text-nm-text-dark">Send Broadcast Message</h2>
+            <Megaphone size={16} style={{ color: 'var(--nm-green)' }} />
+            <h2 className="disp" style={{ fontSize: 15, fontWeight: 700, color: 'var(--nm-ink)' }}>Send Broadcast</h2>
+            <button onClick={() => setShowBroadcast(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--nm-muted)' }}><X size={16} /></button>
           </div>
           <BroadcastPanel onClose={() => setShowBroadcast(false)} />
         </div>
       )}
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-3">
-        <form
-          onSubmit={(e) => { e.preventDefault(); applySearch(); }}
-          className="flex gap-2 flex-1 min-w-[200px]"
-        >
-          <div className="relative flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-nm-text-muted dark:text-nm-text-dark-muted" />
-            <input
-              type="text"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search by user name or phone…"
-              className="w-full pl-9 pr-3 py-2 text-sm border border-nm-border dark:border-nm-border-dark bg-white dark:bg-gray-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-nm-primary text-nm-text dark:text-nm-text-dark placeholder:text-nm-text-muted dark:placeholder:text-nm-text-dark-muted"
-            />
-          </div>
-          <button type="submit" className="nm-btn-primary text-sm px-4">Search</button>
-          {appliedSearch && (
-            <button type="button" onClick={clearSearch} className="nm-btn-secondary text-sm px-3 flex items-center gap-1">
-              <X size={12} /> Clear
-            </button>
-          )}
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
+        <form onSubmit={e => { e.preventDefault(); setApplied(search); setPage(1); }} className="relative">
+          <Search size={13} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--nm-faint)' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search user or message…"
+            className="nm-input" style={{ paddingLeft: 30, width: 220, borderRadius: 999, padding: '8px 12px 8px 30px', fontSize: 13 }} />
         </form>
-
-        <div className="relative">
-          <select
-            value={channelFilter}
-            onChange={(e) => { setChannelFilter(e.target.value); setPage(1); }}
-            className="appearance-none border border-nm-border dark:border-nm-border-dark bg-white dark:bg-gray-800 rounded-lg pl-4 pr-8 py-2 text-sm text-nm-text dark:text-nm-text-dark focus:outline-none focus:ring-2 focus:ring-nm-primary"
-          >
-            {CHANNEL_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-          <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-nm-text-muted pointer-events-none" />
+        <div className="nm-tabbar">
+          {CHANNELS.map(c => (
+            <button key={c} onClick={() => { setChannel(c); setPage(1); }}
+              className={`nm-tab${channel === c ? ' active' : ''}`}>{CH_LABELS[c]}</button>
+          ))}
         </div>
       </div>
 
-      {/* Logs table */}
-      <div className="nm-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-nm-border dark:border-nm-border-dark bg-gray-50 dark:bg-gray-800/50">
-                {['Sent At', 'User', 'Title / Message', 'Channel', 'Status'].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-nm-text-muted dark:text-nm-text-dark-muted uppercase tracking-wide">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-nm-border dark:divide-nm-border-dark">
-              {isLoading ? (
-                Array.from({ length: 8 }).map((_, i) => (
-                  <tr key={i}>
-                    {Array.from({ length: 5 }).map((__, j) => (
-                      <td key={j} className="px-4 py-3">
-                        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : logs.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-16 text-center">
-                    <Bell size={36} className="mx-auto text-nm-text-muted dark:text-nm-text-dark-muted mb-3 opacity-40" />
-                    <p className="text-nm-text-muted dark:text-nm-text-dark-muted text-sm">
-                      {channelFilter || appliedSearch ? 'No notifications match your filters.' : 'No notifications have been sent yet.'}
-                    </p>
-                  </td>
-                </tr>
-              ) : (
-                logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
-                    <td className="px-4 py-3 text-xs text-nm-text-muted dark:text-nm-text-dark-muted whitespace-nowrap">
-                      {log.sentAt
-                        ? new Date(log.sentAt).toLocaleString('en-IN', {
-                            day: '2-digit', month: 'short', year: 'numeric',
-                            hour: '2-digit', minute: '2-digit',
-                          })
-                        : '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-nm-text dark:text-nm-text-dark text-sm">
-                        {log.userName || 'Unknown'}
-                      </div>
-                      {log.userPhone && (
-                        <div className="text-xs text-nm-text-muted dark:text-nm-text-dark-muted">
-                          {log.userPhone}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 max-w-xs">
-                      <div className="font-medium text-nm-text dark:text-nm-text-dark text-sm truncate">
-                        {log.title || log.type || '—'}
-                      </div>
-                      {log.body && (
-                        <div className="text-xs text-nm-text-muted dark:text-nm-text-dark-muted truncate">
-                          {log.body}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <ChannelBadge channel={log.channel} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                        log.isRead
-                          ? 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
-                          : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                      }`}>
-                        {log.isRead ? 'Read' : 'Unread'}
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin" style={{ color: 'var(--nm-green)' }} /></div>
+      ) : logs.length === 0 ? (
+        <div className="text-center py-12">
+          <Bell size={40} style={{ color: 'var(--nm-faint)', margin: '0 auto 10px' }} />
+          <p style={{ color: 'var(--nm-muted)', fontSize: 14 }}>No notifications found</p>
         </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {logs.map(log => {
+            const [color, bg] = TYPE_COLORS[log.type ?? 'system'] ?? TYPE_COLORS.system;
+            return (
+              <div key={log.id} className="nm-card flex items-start gap-3" style={{ padding: '14px 18px' }}>
+                <span className="flex items-center justify-center flex-shrink-0" style={{ width: 38, height: 38, borderRadius: 10, background: bg, color }}>
+                  <Bell size={16} />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="disp" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--nm-ink)', margin: 0 }}>{log.title}</p>
+                    {log.channel && <span className="nm-pill" style={{ fontSize: 10, color: 'var(--nm-muted)', background: 'var(--nm-panel)' }}>{log.channel}</span>}
+                  </div>
+                  <p style={{ fontSize: 13, color: 'var(--nm-muted)', margin: '3px 0 0', lineHeight: 1.4 }}>{log.body}</p>
+                  {(log.userName || log.userPhone) && (
+                    <p style={{ fontSize: 11.5, color: 'var(--nm-faint)', margin: '4px 0 0' }}>{log.userName} {log.userPhone}</p>
+                  )}
+                </div>
+                <span style={{ fontSize: 11.5, color: 'var(--nm-faint)', flexShrink: 0 }}>{fmtDateTime(log.sentAt ?? '')}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-        {/* Pagination */}
-        {!isLoading && totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-nm-border dark:border-nm-border-dark">
-            <p className="text-xs text-nm-text-muted dark:text-nm-text-dark-muted">
-              Showing{' '}
-              <span className="font-semibold text-nm-text dark:text-nm-text-dark">
-                {Math.min((page - 1) * PAGE_SIZE + 1, total)}–{Math.min(page * PAGE_SIZE, total)}
-              </span>{' '}
-              of <span className="font-semibold text-nm-text dark:text-nm-text-dark">{total}</span>
-            </p>
-            <div className="flex gap-1">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-                className="px-3 py-1.5 rounded text-xs font-medium border border-nm-border dark:border-nm-border-dark hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 text-nm-text dark:text-nm-text-dark transition-colors"
-              >
-                ← Prev
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                className="px-3 py-1.5 rounded text-xs font-medium border border-nm-border dark:border-nm-border-dark hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 text-nm-text dark:text-nm-text-dark transition-colors"
-              >
-                Next →
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-5">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="nm-btn-secondary" style={{ padding: '7px 12px', fontSize: 13 }}>‹</button>
+          <span style={{ fontSize: 13, color: 'var(--nm-muted)' }}>Page {page} of {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="nm-btn-secondary" style={{ padding: '7px 12px', fontSize: 13 }}>›</button>
+        </div>
+      )}
+    </AdminShell>
   );
 }

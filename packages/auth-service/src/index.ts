@@ -8,6 +8,8 @@ import { logger } from '@nirmalmandi/shared';
 import { authRouter } from './routes/auth';
 import { profileRouter } from './routes/profile';
 import { adminUsersRouter } from './routes/adminUsers';
+import { consentRouter } from './routes/consent';
+import { docusignRouter } from './routes/docusign';
 
 const app = express();
 const PORT = process.env.AUTH_SERVICE_PORT || 3001;
@@ -20,6 +22,8 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'auth-servic
 app.use('/auth', authRouter);
 app.use('/profile', profileRouter);
 app.use('/admin/users', adminUsersRouter);
+app.use('/consent', consentRouter);
+app.use('/esign', docusignRouter);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error('Unhandled error', { error: err.message, stack: err.stack });

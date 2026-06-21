@@ -1,540 +1,207 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Search, ArrowRight, TrendingDown, Package, Layers, ChevronRight, Loader2, Sparkles } from 'lucide-react';
-import Header from '@/components/Header';
-import ListingCard from '@/components/ListingCard';
-import FlashSaleCard from '@/components/FlashSaleCard';
-import SectorPill from '@/components/SectorPill';
-import { inventoryApi, type Listing, type Sector } from '@/lib/api';
+import { useRouter } from 'next/navigation';
+import { ArrowRight, Shield, Package } from 'lucide-react';
+import { TopNav, ListingCard, Brand } from '@/components/ui';
+import { inventoryApi, type Listing } from '@/lib/api';
 import { isAuthenticated, getUser } from '@/lib/auth';
+import api from '@/lib/api';
 
-const PAGE_LIMIT = 12;
+const SECTORS = ['Electronics', 'Textiles & Apparel', 'FMCG', 'Auto Parts', 'Home & Kitchen', 'Footwear', 'Toys', 'Cosmetics'];
+const HERO_STATS = [['₹240Cr+', 'GMV liquidated'], ['12,400+', 'live lots'], ['74%', 'avg capital recovered']];
+
+function Countdown() {
+  const [s, setS] = useState(4 * 3600 + 12 * 60 + 55);
+  useEffect(() => {
+    const t = setInterval(() => setS(p => Math.max(0, p - 1)), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return <span className="num">{p(hh)}:{p(mm)}:{p(ss)}</span>;
+}
 
 export default function HomePage() {
   const router = useRouter();
-  const [searchQuery, setSearchQuery] = useState('');
+  const [activeSector, setActiveSector] = useState<string | null>(null);
+  const [flashListings, setFlash] = useState<Listing[]>([]);
+  const [featuredListings, setFeatured] = useState<Listing[]>([]);
+  const [loading, setLoading] = useState(true);
+  // AI match banner — personalised for logged-in buyers
+  const [matchedDeals, setMatchedDeals] = useState<{ count: number; sectors: string[] } | null>(null);
 
-  // ── Sectors ─────────────────────────────────────────────────────────────────
-  const [sectors, setSectors] = useState<Sector[]>([]);
-  // activeSector stores the sector's id for pill comparison; activeSectorSlug is passed to the API
-  const [activeSectorId, setActiveSectorId] = useState<string | null>(null);
-  const [activeSectorSlug, setActiveSectorSlug] = useState<string | null>(null);
-
-  // ── Flash sales ─────────────────────────────────────────────────────────────
-  const [flashSales, setFlashSales] = useState<Listing[]>([]);
-
-  // ── Deal feed (load-more) ────────────────────────────────────────────────────
-  const [listings, setListings] = useState<Listing[]>([]);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true);
-
-  // ── Recently viewed ──────────────────────────────────────────────────────────
-  const [recentlyViewed, setRecentlyViewed] = useState<Listing[]>([]);
-
-  // track if we've already initialised the feed for a given activeSector
-  // sentinel value 'UNINIT' means we haven't run the initial fetch yet
-  const activeSectorRef = useRef<string>('UNINIT');
-
-  // ── Load sectors ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    inventoryApi
-      .getSectors()
-      .then((res) => {
-        const raw = (res.data as unknown as { data: Sector[] })?.data ?? res.data;
-        if (Array.isArray(raw)) setSectors(raw);
-      })
-      .catch(() => {});
-  }, []);
-
-  // ── Load flash sales ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    inventoryApi
-      .getListings({ limit: 10, price_type: 'flash_sale' } as Parameters<typeof inventoryApi.getListings>[0])
-      .then((res) => {
-        const raw = (res.data as unknown as { data: { rows: Listing[] } })?.data;
-        const rows: Listing[] = raw?.rows ?? [];
-        // Keep only listings that have a flash_sale_ends_at field
-        setFlashSales(
-          rows.filter(
-            (l) => !!(l as unknown as Record<string, unknown>).flash_sale_ends_at
-          )
-        );
-      })
-      .catch(() => {});
-  }, []);
-
-  // ── Load recently viewed ─────────────────────────────────────────────────────
-  useEffect(() => {
+  const load = useCallback(async () => {
     try {
-      const ids: string[] = JSON.parse(
-        localStorage.getItem('nm_recently_viewed') || '[]'
-      );
-      if (ids.length > 0) {
-        const limited = ids.slice(0, 8);
-        // Fetch each individually and collect results
-        Promise.allSettled(
-          limited.map((id) =>
-            inventoryApi
-              .getListing(id)
-              .then((res) => (res.data as unknown as { data: Listing })?.data ?? (res.data as unknown as Listing))
-          )
-        ).then((results) => {
-          const found: Listing[] = results
-            .filter((r): r is PromiseFulfilledResult<Listing> => r.status === 'fulfilled' && !!r.value)
-            .map((r) => r.value);
-          setRecentlyViewed(found);
-        });
-      }
-    } catch {
-      // localStorage not available (SSR or private mode)
-    }
+      const [fRes, featRes] = await Promise.all([
+        inventoryApi.getListings({ limit: 4, featured: true } as Parameters<typeof inventoryApi.getListings>[0]),
+        inventoryApi.getListings({ limit: 8, sort_by: 'newest' } as Parameters<typeof inventoryApi.getListings>[0]),
+      ]);
+      const rows = (r: unknown) => {
+        const d = (r as { data?: { rows?: Listing[] } | Listing[] })?.data;
+        return Array.isArray(d) ? d : ((d as { rows?: Listing[] })?.rows ?? []);
+      };
+      setFlash(rows(fRes)); setFeatured(rows(featRes));
+    } catch { /* silent */ } finally { setLoading(false); }
   }, []);
 
-  // ── Fetch a page of the deal feed ────────────────────────────────────────────
-  const fetchPage = useCallback(
-    async (pageNum: number, sectorId: string | null, append: boolean) => {
-      if (pageNum === 1 && !append) setInitialLoading(true);
-      else setLoadingMore(true);
-
-      try {
-        const params: Parameters<typeof inventoryApi.getListings>[0] = {
-          page: pageNum,
-          limit: PAGE_LIMIT,
-          featured: pageNum === 1 && !sectorId ? true : undefined,
-          sector: sectorId ?? undefined,
-        };
-        const res = await inventoryApi.getListings(params);
-        const raw = (res.data as unknown as { data: { rows: Listing[]; total?: number } })?.data;
-        const rows: Listing[] = raw?.rows ?? [];
-
-        if (append) {
-          setListings((prev) => [...prev, ...rows]);
-        } else {
-          setListings(rows);
-        }
-        setHasMore(rows.length >= PAGE_LIMIT);
-      } catch {
-        // silently fail — listings just stays empty
-      } finally {
-        setInitialLoading(false);
-        setLoadingMore(false);
-      }
-    },
-    []
-  );
-
-  // ── Initial deal-feed load + react to activeSectorSlug changes ──────────────
+  // Load AI-personalised match count for logged-in buyers
   useEffect(() => {
-    const isFirstRun = activeSectorRef.current === 'UNINIT';
-    activeSectorRef.current = activeSectorSlug ?? '__null__';
+    if (!isAuthenticated()) return;
+    const user = getUser();
+    if (user?.role !== 'buyer') return;
+    api.get('/search/deal-feed?limit=1').then(res => {
+      const d = (res.data as { data?: { total?: number; rows?: unknown[]; sector_interests?: string[] } })?.data;
+      const count = d?.total ?? (d?.rows ?? []).length;
+      if (count > 0) setMatchedDeals({ count, sectors: d?.sector_interests ?? [] });
+    }).catch(() => {});
+  }, []);
 
-    if (!isFirstRun) {
-      // Sector changed — reset feed
-      setListings([]);
-      setPage(1);
-      setHasMore(true);
-    }
-
-    fetchPage(1, activeSectorSlug, false);
-  }, [activeSectorSlug, fetchPage]);
-
-  // ── Load More handler ────────────────────────────────────────────────────────
-  function handleLoadMore() {
-    const nextPage = page + 1;
-    setPage(nextPage);
-    fetchPage(nextPage, activeSectorSlug, true);
-  }
-
-  // ── Search submit ────────────────────────────────────────────────────────────
-  function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      router.push(`/listings?search=${encodeURIComponent(searchQuery.trim())}`);
-    } else {
-      router.push('/listings');
-    }
-  }
-
-  // ── Sector pill click ─────────────────────────────────────────────────────────
-  function handleSectorClick(sectorId: string | null, sectorSlug: string | null) {
-    setActiveSectorId(sectorId);
-    setActiveSectorSlug(sectorSlug);
-  }
+  useEffect(() => { load(); }, [load]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <Header />
+    <div style={{ background: 'var(--nm-paper)', minHeight: '100vh', overflowX: 'hidden' }}>
+      <TopNav />
 
-      {/* Hero */}
-      <section className="bg-gradient-to-br from-primary-700 via-primary-600 to-primary-800 text-white py-20 px-4">
-        <div className="max-w-4xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 bg-white/10 rounded-full px-4 py-1.5 text-sm font-medium mb-6">
-            <TrendingDown className="w-4 h-4" />
-            B2B Liquidation Marketplace
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 leading-tight">
-            India&apos;s B2B Dead Inventory<br />
-            <span className="text-yellow-300">Marketplace</span>
-          </h1>
-          <p className="text-lg text-primary-100 mb-10 max-w-2xl mx-auto">
-            Buy surplus, dead, and liquidation inventory at up to 80% off. Connect directly with verified sellers across India.
-          </p>
-
-          {/* Search bar */}
-          <form onSubmit={handleSearch} className="flex gap-2 max-w-xl mx-auto">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search electronics, apparel, FMCG..."
-                className="w-full pl-10 pr-4 py-3 rounded-xl text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 shadow-lg"
-              />
-            </div>
-            <button
-              type="submit"
-              className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-semibold px-5 py-3 rounded-xl transition-colors shadow-lg flex items-center gap-2"
-            >
-              Search
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
-
-          {/* Stats row */}
-          <div className="flex flex-wrap justify-center gap-6 mt-12 text-sm">
-            {[
-              { label: 'Active Listings', value: '500+' },
-              { label: 'Verified Sellers', value: '120+' },
-              { label: 'Sectors', value: '25+' },
-              { label: 'States Covered', value: '28' },
-            ].map((stat) => (
-              <div key={stat.label} className="bg-white/10 rounded-xl px-6 py-3 text-center">
-                <p className="text-2xl font-bold text-white">{stat.value}</p>
-                <p className="text-primary-200 text-xs mt-0.5">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* AI Match Banner — shown to logged-in buyers */}
-      {isAuthenticated() && getUser()?.role === 'buyer' && (
-        <section className="bg-nm-primary-pale border-b border-nm-primary/20 py-3 px-4">
-          <div className="max-w-7xl mx-auto">
-            <Link
-              href="/listings"
-              className="flex items-center gap-3 group"
-            >
-              <div className="w-8 h-8 rounded-full bg-nm-primary flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-4 h-4 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-nm-primary-dark">
-                  ✨ Deals matched to your profile today
-                </p>
-                <p className="text-xs text-nm-primary/70">
-                  Based on your sector interests and purchase history
-                </p>
-              </div>
-              <ArrowRight className="w-4 h-4 text-nm-primary group-hover:translate-x-1 transition-transform flex-shrink-0" />
-            </Link>
-          </div>
-        </section>
-      )}
-
-      {/* CTA Banner */}
-      <section className="bg-accent-600 text-white py-4 px-4">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-sm">
-          <p className="font-medium">Have dead inventory to liquidate?</p>
-          <div className="flex gap-3">
-            <Link
-              href="/listings"
-              className="bg-white text-accent-700 font-semibold px-4 py-1.5 rounded-lg hover:bg-green-50 transition-colors"
-            >
-              Browse Deals
-            </Link>
-            <Link
-              href="/login"
-              className="bg-accent-700 text-white font-semibold px-4 py-1.5 rounded-lg hover:bg-accent-800 transition-colors border border-white/20"
-            >
-              List Your Inventory
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Flash Sale Strip */}
-      {flashSales.length > 0 && (
-        <section className="bg-gradient-to-r from-amber-500 to-orange-500 py-4">
-          <div className="max-w-7xl mx-auto px-4">
-            <div className="flex items-center gap-3 mb-3">
-              <span className="text-white font-bold text-lg">&#9889; Flash Sales</span>
-              <span className="text-amber-100 text-sm">Ending Soon</span>
-              <Link
-                href="/listings?price_type=flash_sale"
-                className="ml-auto text-white text-sm underline"
-              >
-                View All
-              </Link>
-            </div>
-            <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
-              {flashSales.map((listing) => {
-                const flashListing = listing as unknown as {
-                  id: string;
-                  title: string;
-                  images: string[];
-                  asking_price: number;
-                  mrp?: number;
-                  flash_sale_ends_at: string;
-                  sector_name?: string;
-                  condition_grade: string;
-                };
-                return (
-                  <FlashSaleCard
-                    key={listing.id}
-                    listing={{
-                      id: flashListing.id,
-                      title: flashListing.title,
-                      images: flashListing.images ?? [],
-                      asking_price: flashListing.asking_price,
-                      mrp: flashListing.mrp,
-                      flash_sale_ends_at: flashListing.flash_sale_ends_at,
-                      sector_name: flashListing.sector_name,
-                      condition_grade: flashListing.condition_grade,
-                    }}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      )}
-
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-12 space-y-14">
-
-        {/* Sector browse */}
-        <section id="sectors">
-          <div className="flex items-center justify-between mb-6">
+      {/* ── AI Match Banner (logged-in buyers only) ─────────────────────── */}
+      {matchedDeals && matchedDeals.count > 0 && (
+        <div
+          className="flex items-center justify-between flex-wrap gap-3"
+          style={{ background: 'var(--nm-deep)', color: '#fff', padding: '12px 36px' }}
+        >
+          <div className="flex items-center gap-3">
+            <span style={{ fontSize: 18 }}>✨</span>
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">Browse by Sector</h2>
-              <p className="text-gray-500 text-sm mt-1">Find deals in your industry</p>
-            </div>
-            <Link
-              href="/listings"
-              className="text-sm text-primary-600 font-medium flex items-center gap-1 hover:gap-2 transition-all"
-            >
-              View all <ChevronRight className="w-4 h-4" />
-            </Link>
-          </div>
-
-          {sectors.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-              {sectors.map((sector) => (
-                <Link
-                  key={sector.id}
-                  href={`/listings?sector=${encodeURIComponent(sector.slug)}`}
-                  className="card p-4 text-center hover:shadow-md hover:border-primary-200 transition-all group"
-                >
-                  <div className="w-10 h-10 bg-primary-50 rounded-xl flex items-center justify-center mx-auto mb-2 group-hover:bg-primary-100 transition-colors">
-                    <Layers className="w-5 h-5 text-primary-600" />
-                  </div>
-                  <p className="text-sm font-medium text-gray-800 group-hover:text-primary-600 transition-colors">
-                    {sector.name}
-                  </p>
-                  {sector.listing_count !== undefined && (
-                    <p className="text-xs text-gray-400 mt-0.5">{sector.listing_count} listings</p>
-                  )}
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-              {Array.from({ length: 10 }).map((_, i) => (
-                <div key={i} className="card p-4 animate-pulse">
-                  <div className="w-10 h-10 bg-gray-200 rounded-xl mx-auto mb-2" />
-                  <div className="h-3 bg-gray-200 rounded mx-auto w-3/4" />
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Sector filter pills + deal feed */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">Featured Deals</h2>
-              <p className="text-gray-500 text-sm mt-1">Handpicked inventory at the best prices</p>
-            </div>
-            <Link
-              href="/listings"
-              className="text-sm text-primary-600 font-medium flex items-center gap-1 hover:gap-2 transition-all"
-            >
-              View all <ChevronRight className="w-4 h-4" />
-            </Link>
-          </div>
-
-          {/* Sector filter pills */}
-          {sectors.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-2 mb-6" style={{ scrollbarWidth: 'none' }}>
-              {/* "All" pill */}
-              <SectorPill
-                sector={{ id: '', name: 'All' }}
-                active={activeSectorId === null}
-                onClick={() => handleSectorClick(null, null)}
-              />
-              {sectors.map((s) => (
-                <SectorPill
-                  key={s.id}
-                  sector={s}
-                  active={activeSectorId === s.id}
-                  onClick={() => handleSectorClick(s.id, s.slug)}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Deal feed grid */}
-          {initialLoading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="card animate-pulse">
-                  <div className="h-40 bg-gray-200 rounded-t-xl" />
-                  <div className="p-4 space-y-2">
-                    <div className="h-3 bg-gray-200 rounded w-1/2" />
-                    <div className="h-4 bg-gray-200 rounded" />
-                    <div className="h-3 bg-gray-200 rounded w-3/4" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : listings.length === 0 ? (
-            <div className="text-center py-16">
-              <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500 text-sm">No deals found. Try a different sector.</p>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {listings.map((listing) => (
-                  <ListingCard key={listing.id} listing={listing} />
-                ))}
-              </div>
-
-              {/* Load More */}
-              {hasMore && (
-                <div className="flex justify-center mt-8">
-                  <button
-                    onClick={handleLoadMore}
-                    disabled={loadingMore}
-                    className="flex items-center gap-2 border-2 border-primary-600 text-primary-600 hover:bg-primary-50 font-semibold px-8 py-2.5 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    {loadingMore ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Loading…
-                      </>
-                    ) : (
-                      'Load More Deals'
-                    )}
-                  </button>
-                </div>
+              <span className="disp" style={{ fontWeight: 700, fontSize: 14 }}>
+                {matchedDeals.count.toLocaleString('en-IN')} deals matched for you today
+              </span>
+              {matchedDeals.sectors.length > 0 && (
+                <span style={{ fontSize: 12.5, color: 'rgba(255,255,255,.65)', marginLeft: 10 }}>
+                  in {matchedDeals.sectors.slice(0, 3).join(', ')}
+                </span>
               )}
-            </>
-          )}
-        </section>
-
-        {/* How it works */}
-        <section className="bg-white rounded-2xl border border-gray-200 p-8">
-          <h2 className="text-2xl font-bold text-gray-900 text-center mb-8">How It Works</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            {[
-              {
-                step: '01',
-                title: 'Browse Inventory',
-                desc: 'Search and filter thousands of dead stock listings across India by sector, price, and location.',
-                icon: Search,
-              },
-              {
-                step: '02',
-                title: 'Place Your Order',
-                desc: 'Register as a buyer, select quantity, and place an order directly with the seller.',
-                icon: Package,
-              },
-              {
-                step: '03',
-                title: 'Save Big',
-                desc: 'Get verified inventory at 50–80% below market price. GST invoices provided.',
-                icon: TrendingDown,
-              },
-            ].map(({ step, title, desc, icon: Icon }) => (
-              <div key={step} className="text-center">
-                <div className="w-12 h-12 bg-primary-600 text-white rounded-full flex items-center justify-center mx-auto mb-4 text-lg font-bold">
-                  {step}
-                </div>
-                <div className="mb-2">
-                  <Icon className="w-5 h-5 text-primary-600 mx-auto mb-1" />
-                  <h3 className="font-semibold text-gray-900">{title}</h3>
-                </div>
-                <p className="text-sm text-gray-500 leading-relaxed">{desc}</p>
-              </div>
-            ))}
+            </div>
           </div>
-        </section>
-
-        {/* Recently Viewed */}
-        {recentlyViewed.length > 0 && (
-          <section>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900">Recently Viewed</h2>
-            </div>
-            <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
-              {recentlyViewed.map((listing) => (
-                <div key={listing.id} className="flex-shrink-0 w-60">
-                  <ListingCard listing={listing} />
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-      </main>
-
-      {/* Seller CTA */}
-      <section className="bg-amber-50 border-t border-amber-100 py-12">
-        <div className="max-w-4xl mx-auto text-center px-4">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            Got dead inventory sitting in your warehouse?
-          </h2>
-          <p className="text-gray-600 mb-6">
-            List it in minutes. Connect with 10,000+ verified B2B buyers across India.
-          </p>
           <Link
-            href="/seller-register"
-            className="inline-block bg-amber-500 hover:bg-amber-600 text-white font-semibold px-8 py-3 rounded-lg transition-colors"
+            href="/listings?sort_by=deal_feed"
+            className="nm-btn-gold no-underline"
+            style={{ fontSize: 13, padding: '8px 16px', flexShrink: 0 }}
           >
-            Start Selling Free &rarr;
+            See your deals →
           </Link>
         </div>
-      </section>
+      )}
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 py-8 px-4">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500">
-          <p className="font-semibold text-gray-800">
-            Nirmal<span className="text-primary-600">Mandi</span>
-          </p>
-          <p>&copy; {new Date().getFullYear()} NirmalMandi. All rights reserved.</p>
-          <div className="flex gap-4">
-            <Link href="/listings" className="hover:text-primary-600 transition-colors">Browse</Link>
-            <Link href="/login" className="hover:text-primary-600 transition-colors">Login</Link>
+      {/* ── Hero ────────────────────────────────────────────────────────── */}
+      <section style={{ background: 'var(--nm-deep)', color: '#fff', padding: '56px 36px 64px', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', right: -80, top: -80, width: 360, height: 360, borderRadius: '50%', background: 'rgba(244,168,42,.12)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', right: 180, bottom: -120, width: 260, height: 260, borderRadius: '50%', background: 'rgba(47,128,73,.18)', pointerEvents: 'none' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1.1fr .9fr', gap: 40, alignItems: 'center', maxWidth: 1200, margin: '0 auto', position: 'relative' }}>
+          <div>
+            <span className="nm-pill" style={{ background: 'rgba(244,168,42,.18)', color: '#f4a82a', marginBottom: 20, display: 'inline-flex' }}>
+              ⚡ India's B2B liquidation mandi
+            </span>
+            <h1 className="disp" style={{ fontSize: 'clamp(36px,5vw,56px)', lineHeight: 1.02, fontWeight: 800, margin: '0 0 18px', letterSpacing: '-.02em' }}>
+              Dead inventory,<br /><span style={{ color: '#f4a82a' }}>turned into cash.</span>
+            </h1>
+            <p style={{ fontSize: 17, lineHeight: 1.55, color: 'rgba(255,255,255,.72)', maxWidth: 480, margin: '0 0 28px' }}>
+              Liquidate excess, returns and ageing stock to verified bulk buyers — escrow-protected, freight included, paid out fast.
+            </p>
+            <div className="flex gap-3 flex-wrap">
+              <Link href="/seller-register" className="nm-btn-gold no-underline" style={{ fontSize: 15.5, padding: '15px 22px', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                Sell Now <ArrowRight size={16} />
+              </Link>
+              <Link href="/listings" className="no-underline flex items-center gap-2" style={{ padding: '15px 22px', borderRadius: 12, background: 'rgba(255,255,255,.08)', color: '#fff', border: '1.5px solid rgba(255,255,255,.25)', fontSize: 15.5, fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 600 }}>
+                Browse Deals
+              </Link>
+            </div>
+            <div className="flex gap-9 mt-10 flex-wrap">
+              {HERO_STATS.map(([v, k]) => (
+                <div key={k}>
+                  <div className="num" style={{ fontSize: 26, fontWeight: 800, color: '#f4a82a' }}>{v}</div>
+                  <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,.6)' }}>{k}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Tilted lot card */}
+          <div className="relative hidden lg:block">
+            <div className="nm-card" style={{ background: 'rgba(255,255,255,.07)', border: '1px solid rgba(255,255,255,.14)', padding: 16, transform: 'rotate(-2deg)', borderRadius: 18 }}>
+              <div style={{ height: 230, background: 'rgba(255,255,255,.08)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Package size={64} style={{ color: 'rgba(255,255,255,.3)' }} />
+              </div>
+              <div className="flex justify-between items-center mt-3.5 px-1">
+                <div>
+                  <div className="disp" style={{ fontSize: 16, fontWeight: 700 }}>Galaxy M14 5G lot</div>
+                  <div style={{ fontSize: 12.5, color: 'rgba(255,255,255,.6)' }}>420 units · Grade B</div>
+                </div>
+                <span className="num" style={{ fontSize: 24, fontWeight: 800, color: '#f4a82a' }}>₹6,200</span>
+              </div>
+            </div>
+            <div className="nm-card absolute" style={{ bottom: -22, left: -18, background: 'var(--nm-gold)', border: 'none', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, transform: 'rotate(-2deg)', borderRadius: 16 }}>
+              <span style={{ width: 34, height: 34, borderRadius: 9, background: 'var(--nm-deep)', color: '#f4a82a', display: 'grid', placeItems: 'center' }}>
+                <Shield size={18} />
+              </span>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--nm-deep)', fontWeight: 700 }}>Escrow secured</div>
+                <div className="num disp" style={{ fontSize: 16, fontWeight: 800, color: 'var(--nm-deep)' }}>+₹3.3L margin</div>
+              </div>
+            </div>
           </div>
         </div>
+      </section>
+
+      <div style={{ padding: '36px', maxWidth: 1240, margin: '0 auto' }}>
+        {/* Sectors */}
+        <div className="flex gap-2.5 flex-wrap mb-10">
+          {SECTORS.map((s) => (
+            <button key={s} onClick={() => { setActiveSector(s === activeSector ? null : s); router.push(`/listings?sector=${encodeURIComponent(s)}`); }}
+              className="nm-pill"
+              style={{ fontSize: 13.5, padding: '10px 18px', background: activeSector === s ? 'var(--nm-green)' : 'var(--nm-card)', color: activeSector === s ? '#fff' : 'var(--nm-ink)', border: `1px solid ${activeSector === s ? 'var(--nm-green)' : 'var(--nm-line)'}`, cursor: 'pointer' }}>
+              {s}
+            </button>
+          ))}
+        </div>
+
+        {/* Flash sales */}
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <h2 className="disp" style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>🔥 Flash sales</h2>
+          <span className="nm-pill" style={{ background: 'var(--nm-deep)', color: '#f4a82a', fontWeight: 700 }}>
+            Ends in <Countdown />
+          </span>
+          <Link href="/listings?price_type=flash_sale" className="no-underline ml-auto" style={{ fontSize: 13.5, color: 'var(--nm-green)', fontWeight: 700 }}>View all →</Link>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-11">
+          {loading ? Array.from({ length: 4 }).map((_, i) => <div key={i} className="nm-card animate-pulse" style={{ height: 320 }} />)
+            : (flashListings.length ? flashListings : featuredListings).slice(0, 4).map((l) => <ListingCard key={l.id} listing={l} />)}
+        </div>
+
+        {/* Featured */}
+        <h2 className="disp" style={{ fontSize: 24, fontWeight: 800, margin: '0 0 18px' }}>Featured deals</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-11">
+          {loading ? Array.from({ length: 8 }).map((_, i) => <div key={i} className="nm-card animate-pulse" style={{ height: 320 }} />)
+            : featuredListings.slice(0, 8).map((l) => <ListingCard key={l.id} listing={l} />)}
+        </div>
+
+        {/* Seller CTA */}
+        <div className="gradient-hero flex items-center gap-8 flex-wrap" style={{ borderRadius: 24, color: '#fff', padding: '40px 44px' }}>
+          <div style={{ flex: 1, minWidth: 280 }}>
+            <h2 className="disp" style={{ fontSize: 30, fontWeight: 800, margin: '0 0 10px' }}>Sitting on dead stock?</h2>
+            <p style={{ fontSize: 15.5, color: 'rgba(255,255,255,.75)', margin: 0, maxWidth: 520, lineHeight: 1.5 }}>
+              List it in minutes. Reach 8,000+ verified bulk buyers, set your price or take offers, and recover working capital this week.
+            </p>
+          </div>
+          <Link href="/seller-register" className="nm-btn-gold no-underline flex items-center gap-2" style={{ fontSize: 15.5, padding: '15px 22px', flexShrink: 0 }}>
+            List your inventory <ArrowRight size={16} />
+          </Link>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <footer className="flex items-center flex-wrap gap-4" style={{ padding: '28px 36px', borderTop: '1px solid var(--nm-line)', color: 'var(--nm-muted)', fontSize: 13 }}>
+        <Brand />
+        <span className="ml-auto">© 2026 NirmalMandi · Escrow by RazorpayX · Logistics by Delhivery</span>
       </footer>
     </div>
   );

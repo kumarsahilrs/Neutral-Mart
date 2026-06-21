@@ -2,63 +2,38 @@
 
 import { useQuery } from '@tanstack/react-query';
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { statsApi, transactionsApi } from '@/lib/api';
-import StatsCard from '@/components/ui/StatsCard';
-import StatusBadge from '@/components/ui/StatusBadge';
+import AdminShell from '@/components/ui/AdminShell';
+import Kpi from '@/components/ui/Kpi';
+import SectionCard from '@/components/ui/SectionCard';
+import Badge from '@/components/ui/Badge';
 import {
-  IndianRupee,
-  Package,
-  Users,
-  ShoppingCart,
-  Percent,
-  Scale,
-  AlertTriangle,
-  Clock,
-  FileCheck,
-  RefreshCw,
+  IndianRupee, Package, Users, ShoppingCart, Percent, Scale,
+  AlertTriangle, Clock, FileCheck, RefreshCw, ArrowRight,
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
 interface KpiData {
-  totalGmv: number;
-  gmvChange: number;
-  activeListings: number;
-  listingsChange: number;
-  activeSellers: number;
-  sellersChange: number;
-  activeBuyers: number;
-  buyersChange: number;
-  todaysCommission: number;
-  commissionChange: number;
-  openDisputes: number;
-  disputesChange: number;
+  totalGmv: number; gmvChange: number;
+  activeListings: number; listingsChange: number;
+  activeSellers: number; sellersChange: number;
+  activeBuyers: number; buyersChange: number;
+  todaysCommission: number; commissionChange: number;
+  openDisputes: number; disputesChange: number;
 }
 
-interface GmvPoint {
-  date: string;
-  gmv: number;
-}
-
-interface AlertData {
-  openDisputes: number;
-  agingListings: number;
-  pendingKyc: number;
-}
+interface GmvPoint { date: string; gmv: number; }
+interface AlertData { openDisputes: number; agingListings: number; pendingKyc: number; }
 
 interface RecentOrder {
   id: string;
   orderNumber: string;
   buyerName: string;
   sellerName: string;
-  amount: number;
+  amount?: number;
+  totalAmount?: number;
   status: string;
   createdAt: string;
 }
@@ -70,41 +45,40 @@ function formatINR(val: number): string {
   return val.toFixed(0);
 }
 
-function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
+function deltaSub(change: number | undefined, label: string): { sub: string; positive?: boolean } {
+  if (change == null) return { sub: label };
+  const sign = change > 0 ? '+' : '';
+  return { sub: `${sign}${change.toFixed(1)}% ${label}`, positive: change >= 0 };
+}
+
+function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
   if (!active || !payload?.length) return null;
+  let d = label ?? '';
+  try { d = format(parseISO(label ?? ''), 'd MMM'); } catch { /* keep raw */ }
   return (
-    <div className="nm-card px-3 py-2 text-xs shadow-lg">
-      <p className="text-nm-text-muted dark:text-nm-text-dark-muted mb-1">{label}</p>
-      <p className="font-bold text-nm-primary">₹{formatINR(payload[0].value)}</p>
+    <div className="nm-card" style={{ padding: '8px 12px', fontSize: 12 }}>
+      <div style={{ color: 'var(--nm-muted)', marginBottom: 2 }}>{d}</div>
+      <div className="num" style={{ color: 'var(--nm-green)', fontWeight: 800 }}>₹{formatINR(payload[0].value)}</div>
     </div>
   );
 }
 
 export default function DashboardPage() {
-  const { data: kpiData, isLoading: kpiLoading, refetch: refetchKpi } = useQuery<KpiData | null>({
+  const { data: kpi, isLoading: kpiLoading, refetch: refetchKpi } = useQuery<KpiData | null>({
     queryKey: ['dashboard-kpi'],
-    queryFn: async () => {
-      const res = await statsApi.getDashboard();
-      return res.data?.data ?? null;
-    },
+    queryFn: async () => (await statsApi.getDashboard()).data?.data ?? null,
     retry: 1,
   });
 
   const { data: gmvData, refetch: refetchGmv } = useQuery<GmvPoint[]>({
     queryKey: ['gmv-history'],
-    queryFn: async () => {
-      const res = await statsApi.getGmvHistory(30);
-      return res.data?.data ?? [];
-    },
+    queryFn: async () => (await statsApi.getGmvHistory(30)).data?.data ?? [],
     retry: 1,
   });
 
-  const { data: alertData, refetch: refetchAlerts } = useQuery<AlertData | null>({
+  const { data: alerts, refetch: refetchAlerts } = useQuery<AlertData | null>({
     queryKey: ['dashboard-alerts'],
-    queryFn: async () => {
-      const res = await statsApi.getAlerts();
-      return res.data?.data ?? null;
-    },
+    queryFn: async () => (await statsApi.getAlerts()).data?.data ?? null,
     retry: 1,
   });
 
@@ -119,251 +93,166 @@ export default function DashboardPage() {
   });
 
   function refetchAll() {
-    refetchKpi();
-    refetchGmv();
-    refetchAlerts();
-    refetchOrders();
+    refetchKpi(); refetchGmv(); refetchAlerts(); refetchOrders();
   }
 
-  const kpi = kpiData ?? null;
   const gmv = gmvData ?? [];
-  const alerts = alertData ?? null;
-  const recentOrders: RecentOrder[] = recentOrdersData ?? [];
+  const recentOrders = recentOrdersData ?? [];
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-nm-text dark:text-nm-text-dark">Dashboard</h1>
-          <p className="text-sm text-nm-text-muted dark:text-nm-text-dark-muted mt-0.5">
-            Amalthea Command Center —{' '}
-            {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-          </p>
-        </div>
-        <button
-          onClick={refetchAll}
-          className="nm-btn-secondary flex items-center gap-2 text-sm"
-        >
-          <RefreshCw size={14} />
-          Refresh
+    <AdminShell
+      title="Platform overview"
+      subtitle="Live · last 30 days"
+      actions={
+        <button onClick={refetchAll} className="nm-btn-secondary" style={{ padding: '9px 14px', fontSize: 13 }}>
+          <RefreshCw size={14} /> Refresh
         </button>
+      }
+    >
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <Kpi label="Total GMV" loading={kpiLoading} icon={IndianRupee}
+          value={`₹${formatINR(kpi?.totalGmv ?? 0)}`}
+          {...deltaSub(kpi?.gmvChange, 'vs last month')} />
+        <Kpi label="Active listings" loading={kpiLoading} icon={Package}
+          value={(kpi?.activeListings ?? 0).toLocaleString('en-IN')}
+          {...deltaSub(kpi?.listingsChange, 'vs last week')} />
+        <Kpi label="Active sellers" loading={kpiLoading} icon={Users}
+          value={(kpi?.activeSellers ?? 0).toLocaleString('en-IN')}
+          {...deltaSub(kpi?.sellersChange, 'vs last week')} />
+        <Kpi label="Active buyers" loading={kpiLoading} icon={ShoppingCart}
+          value={(kpi?.activeBuyers ?? 0).toLocaleString('en-IN')}
+          {...deltaSub(kpi?.buyersChange, 'vs last week')} />
+        <Kpi label="Today's commission" loading={kpiLoading} icon={Percent}
+          value={`₹${formatINR(kpi?.todaysCommission ?? 0)}`}
+          {...deltaSub(kpi?.commissionChange, 'vs yesterday')} />
+        <Kpi label="Open disputes" loading={kpiLoading} icon={Scale} danger
+          value={(kpi?.openDisputes ?? 0).toLocaleString('en-IN')}
+          {...deltaSub(kpi?.disputesChange, 'vs last week')} />
       </div>
 
-      {/* KPI Cards */}
-      {kpiLoading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <StatsCard key={i} title="" value="" loading />
-          ))}
+      {/* GMV chart + alerts */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-4">
+        <div className="xl:col-span-2">
+          <SectionCard title="GMV — last 30 days"
+            action={<span style={{ fontSize: 12, color: 'var(--nm-muted)' }}>Daily gross merchandise value</span>}>
+            {gmv.length === 0 ? (
+              <div className="flex items-center justify-center" style={{ height: 240, color: 'var(--nm-muted)', fontSize: 13 }}>
+                No GMV data available
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <AreaChart data={gmv} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="gmvFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#1f6b3a" stopOpacity={0.28} />
+                      <stop offset="100%" stopColor="#1f6b3a" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ece1cd" />
+                  <XAxis dataKey="date"
+                    tickFormatter={(d) => { try { return format(parseISO(d), 'd MMM'); } catch { return d; } }}
+                    tick={{ fontSize: 11, fill: '#7a6f5d' }} tickLine={false} axisLine={false} interval={4} />
+                  <YAxis tickFormatter={(v) => `₹${formatINR(v)}`}
+                    tick={{ fontSize: 11, fill: '#7a6f5d' }} tickLine={false} axisLine={false} width={64} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Area type="monotone" dataKey="gmv" stroke="#1f6b3a" strokeWidth={2}
+                    fill="url(#gmvFill)" activeDot={{ r: 4, fill: '#1f6b3a' }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </SectionCard>
         </div>
-      ) : kpi ? (
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          <StatsCard
-            title="Total GMV"
-            value={formatINR(kpi.totalGmv)}
-            prefix="₹"
-            change={kpi.gmvChange}
-            changeLabel="vs last month"
-            icon={<IndianRupee size={16} className="text-nm-primary" />}
-            iconBg="bg-nm-primary/10"
-          />
-          <StatsCard
-            title="Active Listings"
-            value={kpi.activeListings.toLocaleString('en-IN')}
-            change={kpi.listingsChange}
-            changeLabel="vs last week"
-            icon={<Package size={16} className="text-purple-600" />}
-            iconBg="bg-purple-100 dark:bg-purple-900/20"
-          />
-          <StatsCard
-            title="Active Sellers"
-            value={kpi.activeSellers}
-            change={kpi.sellersChange}
-            changeLabel="vs last week"
-            icon={<Users size={16} className="text-nm-accent" />}
-            iconBg="bg-green-100 dark:bg-green-900/20"
-          />
-          <StatsCard
-            title="Active Buyers"
-            value={kpi.activeBuyers}
-            change={kpi.buyersChange}
-            changeLabel="vs last week"
-            icon={<ShoppingCart size={16} className="text-blue-600" />}
-            iconBg="bg-blue-100 dark:bg-blue-900/20"
-          />
-          <StatsCard
-            title="Today's Commission"
-            value={formatINR(kpi.todaysCommission)}
-            prefix="₹"
-            change={kpi.commissionChange}
-            changeLabel="vs yesterday"
-            icon={<Percent size={16} className="text-nm-warning" />}
-            iconBg="bg-yellow-100 dark:bg-yellow-900/20"
-          />
-          <StatsCard
-            title="Open Disputes"
-            value={kpi.openDisputes}
-            change={kpi.disputesChange}
-            changeLabel="vs last week"
-            icon={<Scale size={16} className="text-nm-danger" />}
-            iconBg="bg-red-100 dark:bg-red-900/20"
-          />
-        </div>
-      ) : (
-        <div className="nm-card p-8 text-center text-nm-text-muted dark:text-nm-text-dark-muted text-sm">
-          KPI data unavailable. Click Refresh to try again.
-        </div>
-      )}
 
-      {/* GMV Chart + Alerts */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* GMV Chart */}
-        <div className="xl:col-span-2 nm-card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-nm-text dark:text-nm-text-dark">GMV — Last 30 Days</h2>
-            <span className="text-xs text-nm-text-muted dark:text-nm-text-dark-muted">Daily gross merchandise value</span>
-          </div>
-          {gmv.length === 0 ? (
-            <div className="h-[220px] flex items-center justify-center text-nm-text-muted dark:text-nm-text-dark-muted text-sm">
-              No GMV data available
+        <div className="flex flex-col gap-3">
+          <AlertCard
+            accent="var(--nm-red)" bg="var(--nm-red-soft)" fg="var(--nm-red)" icon={AlertTriangle}
+            title={`${alerts?.openDisputes ?? kpi?.openDisputes ?? 0} disputes need attention`}
+            body="Review and respond before SLA breach."
+            href="/disputes" cta="View dispute queue" />
+          <AlertCard
+            accent="var(--nm-gold)" bg="var(--nm-gold-soft)" fg="var(--nm-gold-ink)" icon={Clock}
+            title={`${alerts?.agingListings ?? 0} listings ageing >30 days`}
+            body="These listings risk de-ranking. Consider seller outreach."
+            href="/inventory" cta="View in inventory" />
+          <AlertCard
+            accent="var(--nm-info)" bg="var(--nm-info-soft)" fg="var(--nm-info)" icon={FileCheck}
+            title={`${alerts?.pendingKyc ?? 0} KYC documents pending`}
+            body="Sellers are blocked from transacting until KYC is approved."
+            href="/kyc" cta="Review KYC docs" />
+        </div>
+      </div>
+
+      {/* Recent transactions */}
+      <div className="mt-4">
+        <SectionCard
+          title="Recent transactions"
+          pad={0}
+          action={
+            <a href="/transactions" className="flex items-center gap-1" style={{ fontSize: 13, fontWeight: 600, color: 'var(--nm-green)', padding: '18px 22px 0' }}>
+              View all <ArrowRight size={14} />
+            </a>
+          }
+        >
+          {recentOrders.length === 0 ? (
+            <div className="text-center" style={{ padding: '48px 0', color: 'var(--nm-muted)', fontSize: 13 }}>
+              No recent transactions
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={gmv} margin={{ top: 2, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" strokeOpacity={0.5} />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={(d) => {
-                    try { return format(parseISO(d), 'd MMM'); } catch { return d; }
-                  }}
-                  tick={{ fontSize: 11, fill: '#64748b' }}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={4}
-                />
-                <YAxis
-                  tickFormatter={(v) => `₹${formatINR(v)}`}
-                  tick={{ fontSize: 11, fill: '#64748b' }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={64}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="gmv"
-                  stroke="#2563eb"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4, fill: '#2563eb' }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <div className="overflow-x-auto scrollbar-thin" style={{ padding: '6px 22px 16px' }}>
+              <table className="nm-table">
+                <thead>
+                  <tr>
+                    <th>Order</th><th>Buyer</th><th>Seller</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th><th>Status</th><th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentOrders.map((o) => {
+                    const amt = o.amount ?? o.totalAmount ?? 0;
+                    return (
+                      <tr key={o.id}>
+                        <td className="num" style={{ color: 'var(--nm-green)', fontWeight: 700 }}>{o.orderNumber || '—'}</td>
+                        <td>{o.buyerName}</td>
+                        <td style={{ color: 'var(--nm-muted)' }}>{o.sellerName}</td>
+                        <td className="num">₹{amt.toLocaleString('en-IN')}</td>
+                        <td><Badge status={o.status} /></td>
+                        <td style={{ color: 'var(--nm-muted)', fontSize: 12.5 }}>
+                          {o.createdAt ? format(new Date(o.createdAt), 'h:mm a') : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
-        </div>
-
-        {/* Alert Cards */}
-        <div className="space-y-3">
-          <div className="nm-card p-4 border-l-4 border-nm-danger">
-            <div className="flex items-start gap-3">
-              <AlertTriangle size={18} className="text-nm-danger shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold text-nm-text dark:text-nm-text-dark">
-                  {alerts?.openDisputes ?? kpi?.openDisputes ?? '—'} Disputes Need Attention
-                </p>
-                <p className="text-xs text-nm-text-muted dark:text-nm-text-dark-muted mt-0.5">
-                  Review and respond before SLA breach.
-                </p>
-                <a href="/disputes" className="text-xs text-nm-primary font-medium mt-2 inline-block hover:underline">
-                  View Dispute Queue →
-                </a>
-              </div>
-            </div>
-          </div>
-
-          <div className="nm-card p-4 border-l-4 border-nm-warning">
-            <div className="flex items-start gap-3">
-              <Clock size={18} className="text-nm-warning shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold text-nm-text dark:text-nm-text-dark">
-                  {alerts?.agingListings ?? '—'} Listings Aging &gt;30 Days
-                </p>
-                <p className="text-xs text-nm-text-muted dark:text-nm-text-dark-muted mt-0.5">
-                  These listings risk de-ranking. Consider seller outreach or featuring them.
-                </p>
-                <a href="/inventory?filter=aging" className="text-xs text-nm-primary font-medium mt-2 inline-block hover:underline">
-                  View in Inventory →
-                </a>
-              </div>
-            </div>
-          </div>
-
-          <div className="nm-card p-4 border-l-4 border-nm-primary">
-            <div className="flex items-start gap-3">
-              <FileCheck size={18} className="text-nm-primary shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold text-nm-text dark:text-nm-text-dark">
-                  {alerts?.pendingKyc ?? '—'} KYC Documents Pending
-                </p>
-                <p className="text-xs text-nm-text-muted dark:text-nm-text-dark-muted mt-0.5">
-                  Sellers are blocked from transacting until KYC is approved.
-                </p>
-                <a href="/users?tab=sellers&kyc=pending" className="text-xs text-nm-primary font-medium mt-2 inline-block hover:underline">
-                  Review KYC Docs →
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
+        </SectionCard>
       </div>
+    </AdminShell>
+  );
+}
 
-      {/* Recent Transactions */}
-      <div className="nm-card overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-nm-border dark:border-nm-border-dark">
-          <h2 className="text-sm font-semibold text-nm-text dark:text-nm-text-dark">Recent Transactions</h2>
-          <a href="/orders" className="text-xs text-nm-primary font-medium hover:underline">
-            View all →
+function AlertCard({
+  accent, bg, fg, icon: Icon, title, body, href, cta,
+}: {
+  accent: string; bg: string; fg: string; icon: typeof AlertTriangle;
+  title: string; body: string; href: string; cta: string;
+}) {
+  return (
+    <div className="nm-card" style={{ padding: 16, borderLeft: `4px solid ${accent}` }}>
+      <div className="flex items-start gap-3">
+        <span className="flex items-center justify-center flex-shrink-0"
+          style={{ width: 32, height: 32, borderRadius: 9, background: bg, color: fg }}>
+          <Icon size={16} />
+        </span>
+        <div>
+          <p className="disp" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--nm-ink)', margin: 0 }}>{title}</p>
+          <p style={{ fontSize: 12, color: 'var(--nm-muted)', marginTop: 3 }}>{body}</p>
+          <a href={href} className="flex items-center gap-1" style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--nm-green)', marginTop: 8 }}>
+            {cta} <ArrowRight size={13} />
           </a>
         </div>
-        {recentOrders.length === 0 ? (
-          <div className="px-5 py-12 text-center text-nm-text-muted dark:text-nm-text-dark-muted text-sm">
-            No recent transactions
-          </div>
-        ) : (
-          <div className="overflow-x-auto scrollbar-thin">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 dark:bg-gray-800/50 border-b border-nm-border dark:border-nm-border-dark">
-                  <th className="px-5 py-3 text-left text-xs font-semibold text-nm-text-muted dark:text-nm-text-dark-muted uppercase tracking-wide">Order #</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold text-nm-text-muted dark:text-nm-text-dark-muted uppercase tracking-wide">Buyer</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold text-nm-text-muted dark:text-nm-text-dark-muted uppercase tracking-wide">Seller</th>
-                  <th className="px-5 py-3 text-right text-xs font-semibold text-nm-text-muted dark:text-nm-text-dark-muted uppercase tracking-wide">Amount</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold text-nm-text-muted dark:text-nm-text-dark-muted uppercase tracking-wide">Status</th>
-                  <th className="px-5 py-3 text-left text-xs font-semibold text-nm-text-muted dark:text-nm-text-dark-muted uppercase tracking-wide">Time</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-nm-border dark:divide-nm-border-dark">
-                {recentOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 cursor-pointer transition-colors">
-                    <td className="px-5 py-3 font-mono text-xs font-medium text-nm-primary">{order.orderNumber}</td>
-                    <td className="px-5 py-3 text-nm-text dark:text-nm-text-dark">{order.buyerName}</td>
-                    <td className="px-5 py-3 text-nm-text-muted dark:text-nm-text-dark-muted">{order.sellerName}</td>
-                    <td className="px-5 py-3 text-right font-semibold text-nm-text dark:text-nm-text-dark">
-                      ₹{(order.amount ?? 0).toLocaleString('en-IN')}
-                    </td>
-                    <td className="px-5 py-3">
-                      <StatusBadge status={order.status} size="sm" />
-                    </td>
-                    <td className="px-5 py-3 text-nm-text-muted dark:text-nm-text-dark-muted text-xs">
-                      {format(new Date(order.createdAt), 'h:mm a')}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
     </div>
   );

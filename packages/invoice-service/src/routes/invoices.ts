@@ -149,6 +149,216 @@ invoicesRouter.get('/:orderId', authenticate, async (req: Request, res: Response
   }));
 });
 
+// ── POST /invoices/po/:orderId — generate Purchase Order PDF ─────
+
+invoicesRouter.post('/po/:orderId', authenticate, async (req: Request, res: Response) => {
+  const { orderId } = req.params;
+
+  const order = await queryOne<{
+    id: string; order_number: string; buyer_id: string; seller_id: string;
+    quantity: number; unit_price: number; total_amount: number; created_at: string;
+    buyer_name: string; buyer_gstin: string; buyer_address: string; buyer_phone: string;
+    seller_name: string; seller_gstin: string; seller_address: string;
+    listing_title: string; hsn_code: string; po_url: string | null;
+  }>(
+    `SELECT o.id, o.order_number, o.buyer_id, o.seller_id,
+            o.quantity, o.unit_price, o.total_amount, o.created_at,
+            COALESCE(bp.business_name, ub.full_name) AS buyer_name,
+            COALESCE(bp.gst_number,'') AS buyer_gstin,
+            ub.phone AS buyer_address,
+            ub.phone AS buyer_phone,
+            sp.business_name AS seller_name,
+            COALESCE(sp.gstin,'') AS seller_gstin,
+            CONCAT(COALESCE(sp.city,''), ', ', COALESCE(sp.state,'')) AS seller_address,
+            l.title AS listing_title,
+            COALESCE(l.hsn_code,'9999') AS hsn_code,
+            o.po_url
+     FROM orders o
+     JOIN listings l ON o.listing_id = l.id
+     JOIN buyer_profiles bp ON bp.id = o.buyer_id
+     JOIN users ub ON ub.id = bp.user_id
+     JOIN seller_profiles sp ON sp.id = o.seller_id
+     WHERE o.id = $1`,
+    [orderId]
+  );
+  if (!order) return res.status(404).json(errorResponse('Order not found'));
+
+  const isParty = [order.buyer_id, order.seller_id].includes(req.user!.profile_id);
+  const isAdmin = req.user!.role === 'admin';
+  if (!isParty && !isAdmin) return res.status(403).json(errorResponse('Forbidden'));
+
+  // Return cached URL if already generated
+  if (order.po_url) return res.json(successResponse({ poUrl: order.po_url }));
+
+  const { generatePurchaseOrder } = await import('../services/poGenerator');
+  const poNumber = `PO-${order.order_number}`;
+  const poDate = new Date(order.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  const poUrl = await generatePurchaseOrder({
+    poNumber,
+    poDate,
+    orderId: order.id,
+    orderNumber: order.order_number,
+    buyerName: order.buyer_name,
+    buyerGstin: order.buyer_gstin || undefined,
+    buyerAddress: order.buyer_address,
+    buyerContact: order.buyer_phone,
+    sellerName: order.seller_name,
+    sellerGstin: order.seller_gstin || undefined,
+    sellerAddress: order.seller_address,
+    item: {
+      description: order.listing_title,
+      hsn: order.hsn_code,
+      quantity: order.quantity,
+      unit: 'Units',
+      unitPrice: order.unit_price,
+      totalPrice: order.total_amount,
+    },
+    paymentTerms: 'Advance via NirmalMandi Escrow',
+    notes: 'This PO is governed by NirmalMandi platform terms. Delivery to be arranged by seller.',
+  });
+
+  // Cache the URL on the order
+  await query(`UPDATE orders SET po_url = $1 WHERE id = $2`, [poUrl, orderId]);
+
+  logger.info('PO generated', { orderId, poNumber });
+  return res.status(201).json(successResponse({ poUrl, poNumber }));
+});
+
+// ── GET /invoices/tcs/gstr8 — TCS monthly summary for GSTR-8 filing ──────────
+// GSTR-8 is the TCS return filed by marketplace operators (NirmalMandi) under GST.
+// Filed by 10th of the following month. Shows TCS collected per seller per month.
+
+invoicesRouter.get('/tcs/gstr8', authenticate, requireRole('admin'), async (req: Request, res: Response) => {
+  const month = String(req.query.month ?? ''); // e.g. '2026-06'
+  if (!month.match(/^\d{4}-\d{2}$/)) return res.status(400).json(errorResponse('month param required (YYYY-MM)'));
+
+  const startDate = `${month}-01`;
+  const endDate   = `${month}-31`;
+
+  // escrow_accounts columns: amount (not gross_amount), no seller_id (join orders), status 'released'
+  const summary = await queryOne<{
+    total_taxable: number; tcs_collected: number; seller_count: number; transaction_count: number;
+  }>(
+    `SELECT
+       SUM(ea.amount)        as total_taxable,
+       SUM(ea.tcs_amount)    as tcs_collected,
+       COUNT(DISTINCT o.seller_id) as seller_count,
+       COUNT(*)              as transaction_count
+     FROM escrow_accounts ea
+     JOIN orders o ON o.id = ea.order_id
+     WHERE ea.status = 'released'
+       AND ea.released_at >= $1::date
+       AND ea.released_at < ($2::date + INTERVAL '1 day')`,
+    [startDate, endDate]
+  );
+
+  const sellerBreakdown = await query<{
+    seller_id: string; business_name: string; gstin: string;
+    gross_amount: number; tcs_collected: number; order_count: number;
+  }>(
+    `SELECT
+       o.seller_id,
+       sp.business_name,
+       COALESCE(sp.gstin, 'UNREGISTERED') as gstin,
+       SUM(ea.amount)        as gross_amount,
+       SUM(ea.tcs_amount)    as tcs_collected,
+       COUNT(*) as order_count
+     FROM escrow_accounts ea
+     JOIN orders o ON o.id = ea.order_id
+     JOIN seller_profiles sp ON sp.id = o.seller_id
+     WHERE ea.status = 'released'
+       AND ea.released_at >= $1::date
+       AND ea.released_at < ($2::date + INTERVAL '1 day')
+     GROUP BY o.seller_id, sp.business_name, sp.gstin
+     ORDER BY gross_amount DESC`,
+    [startDate, endDate]
+  );
+
+  // Upsert the monthly summary cache
+  await query(
+    `INSERT INTO tcs_monthly_summary
+       (month, total_taxable, tcs_collected, seller_count, transaction_count)
+     VALUES ($1::date, $2, $3, $4, $5)
+     ON CONFLICT (month) DO UPDATE SET
+       total_taxable    = EXCLUDED.total_taxable,
+       tcs_collected    = EXCLUDED.tcs_collected,
+       seller_count     = EXCLUDED.seller_count,
+       transaction_count = EXCLUDED.transaction_count`,
+    [startDate,
+     summary?.total_taxable ?? 0,
+     summary?.tcs_collected ?? 0,
+     summary?.seller_count ?? 0,
+     summary?.transaction_count ?? 0]
+  );
+
+  return res.json(successResponse({
+    month,
+    platform_gstin: process.env.PLATFORM_GSTIN ?? '',
+    summary: {
+      total_taxable_value: summary?.total_taxable ?? 0,
+      tcs_collected_at_1pct: summary?.tcs_collected ?? 0,
+      seller_count: summary?.seller_count ?? 0,
+      transaction_count: summary?.transaction_count ?? 0,
+    },
+    seller_breakdown: sellerBreakdown,
+    gstr8_note: 'File GSTR-8 by the 10th of the following month via GST portal (gstin.gov.in)',
+  }));
+});
+
+// ── GET /invoices/tcs/certificate/:sellerId — TCS deduction certificate ──────
+// Issued to sellers annually under section 206C of Income Tax Act.
+
+invoicesRouter.get('/tcs/certificate/:sellerId', authenticate, async (req: Request, res: Response) => {
+  const isAdmin = req.user!.role === 'admin';
+  const isSelf  = req.user!.profile_id === req.params.sellerId;
+  if (!isAdmin && !isSelf) return res.status(403).json(errorResponse('Forbidden'));
+
+  const fy = String(req.query.fy ?? `${new Date().getFullYear()}-${(new Date().getFullYear() + 1).toString().slice(-2)}`);
+
+  const [year] = fy.split('-');
+  const startDate = `${year}-04-01`;
+  const endDate   = `${parseInt(year) + 1}-03-31`;
+
+  const seller = await queryOne<{ business_name: string; gstin: string; pan: string }>(
+    `SELECT sp.business_name, COALESCE(sp.gstin,'') as gstin, '' as pan
+     FROM seller_profiles sp WHERE sp.id = $1`,
+    [req.params.sellerId]
+  );
+  if (!seller) return res.status(404).json(errorResponse('Seller not found'));
+
+  const tcs = await queryOne<{ total_taxable: number; total_tcs: number; transaction_count: number }>(
+    `SELECT SUM(ea.amount) as total_taxable, SUM(ea.tcs_amount) as total_tcs, COUNT(*) as transaction_count
+     FROM escrow_accounts ea
+     JOIN orders o ON o.id = ea.order_id
+     WHERE o.seller_id = $1
+       AND ea.status = 'released'
+       AND ea.released_at >= $2::date AND ea.released_at < $3::date`,
+    [req.params.sellerId, startDate, endDate]
+  );
+
+  return res.json(successResponse({
+    certificate_type: 'TCS Deduction Certificate (Section 206C)',
+    financial_year: fy,
+    deductor: {
+      name: 'NirmalMandi Technologies Pvt. Ltd.',
+      gstin: process.env.PLATFORM_GSTIN ?? '',
+      address: 'NirmalMandi, India',
+    },
+    deductee: {
+      name: seller.business_name,
+      gstin: seller.gstin,
+    },
+    tcs_summary: {
+      total_taxable_value: tcs?.total_taxable ?? 0,
+      tcs_rate: '1%',
+      total_tcs_collected: tcs?.total_tcs ?? 0,
+      transaction_count: tcs?.transaction_count ?? 0,
+    },
+    note: 'This certificate is for reference only. File your returns based on GSTR-2A/2B from GST portal.',
+  }));
+});
+
 // ── GET /invoices/admin/list ─────────────────────────────────────
 invoicesRouter.get('/admin/list', authenticate, requireRole('admin'), async (req: Request, res: Response) => {
   const { month } = req.query; // e.g. "2024-03"

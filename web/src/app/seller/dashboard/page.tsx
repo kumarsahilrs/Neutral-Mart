@@ -2,33 +2,31 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   IndianRupee,
   Package,
-  ShoppingCart,
   Wallet,
+  ShoppingBag,
   AlertTriangle,
-  TrendingUp,
-  TrendingDown,
-  Plus,
-  ArrowRight,
-  Loader2,
-  Clock,
-  CheckCircle,
   Truck,
-  XCircle,
-  RefreshCw,
+  ArrowRight,
+  Plus,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { AppShell, Kpi, Badge, SectionCard, inr } from '@/components/ui';
 import api from '@/lib/api';
-import { isAuthenticated } from '@/lib/auth';
+import { isAuthenticated, getUser } from '@/lib/auth';
+import { SELLER_NAV, SELLER_BRAND_SUB, SellerSidebarFooter } from '../_nav';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface RecentOrder {
   id: string;
   order_number: string;
   buyer_business_name: string;
+  buyer_name?: string;
   listing_title: string;
   total_amount: number;
   status: string;
@@ -48,339 +46,229 @@ interface SellerDashboardData {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-function formatCurrency(amount: number): string {
-  return '₹' + amount.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+function fmtDate(dateStr: string): string {
+  if (!dateStr) return '—';
+  return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 }
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-  pending: { label: 'Pending', color: 'bg-yellow-100 text-yellow-700', icon: Clock },
-  confirmed: { label: 'Confirmed', color: 'bg-blue-100 text-blue-700', icon: CheckCircle },
-  processing: { label: 'Processing', color: 'bg-purple-100 text-purple-700', icon: RefreshCw },
-  ready_to_ship: { label: 'Ready to Ship', color: 'bg-cyan-100 text-cyan-700', icon: Package },
-  shipped: { label: 'Shipped', color: 'bg-indigo-100 text-indigo-700', icon: Truck },
-  delivered: { label: 'Delivered', color: 'bg-green-100 text-green-700', icon: CheckCircle },
-  cancelled: { label: 'Cancelled', color: 'bg-red-100 text-red-700', icon: XCircle },
-  disputed: { label: 'Disputed', color: 'bg-orange-100 text-orange-700', icon: AlertTriangle },
+// Map raw order status → Badge status string
+const STATUS_LABEL: Record<string, string> = {
+  pending: 'Pending',
+  confirmed: 'Confirmed',
+  processing: 'Pending',
+  ready_to_ship: 'Awaiting ship',
+  shipped: 'Shipped',
+  in_transit: 'In transit',
+  delivered: 'Delivered',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+  disputed: 'Disputed',
 };
 
-// ── KPI Card ───────────────────────────────────────────────────────────────────
-function KpiCard({
-  label,
-  value,
-  subtitle,
-  icon: Icon,
-  iconColor,
-  trend,
-  trendLabel,
-}: {
-  label: string;
-  value: string;
-  subtitle?: string;
-  icon: React.ElementType;
-  iconColor: string;
-  trend?: number;
-  trendLabel?: string;
-}) {
-  const isPositive = (trend ?? 0) >= 0;
-  return (
-    <div className="card p-5">
-      <div className="flex items-start justify-between mb-3">
-        <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">{label}</p>
-        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${iconColor}`}>
-          <Icon className="w-4 h-4" />
-        </div>
-      </div>
-      <p className="text-2xl font-bold text-gray-900 mb-1">{value}</p>
-      {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
-      {trend !== undefined && (
-        <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${isPositive ? 'text-green-600' : 'text-red-500'}`}>
-          {isPositive ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-          {isPositive ? '+' : ''}{trend.toFixed(1)}% {trendLabel ?? 'vs last month'}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Skeleton ───────────────────────────────────────────────────────────────────
-function DashboardSkeleton() {
-  return (
-    <div className="space-y-6 animate-pulse">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="card p-5 space-y-3">
-            <div className="flex justify-between">
-              <div className="h-3 bg-gray-200 rounded w-20" />
-              <div className="w-9 h-9 bg-gray-200 rounded-lg" />
-            </div>
-            <div className="h-7 bg-gray-200 rounded w-28" />
-            <div className="h-3 bg-gray-200 rounded w-16" />
-          </div>
-        ))}
-      </div>
-      <div className="card p-5 space-y-3">
-        <div className="h-4 bg-gray-200 rounded w-36" />
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-12 bg-gray-100 rounded" />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Page ───────────────────────────────────────────────────────────────────────
 export default function SellerDashboardPage() {
+  const router = useRouter();
   const [ready, setReady] = useState(false);
+  const user = getUser();
 
-  useEffect(() => {
-    setReady(true);
-  }, []);
+  useEffect(() => { setReady(true); }, []);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['seller-dashboard'],
-    queryFn: () =>
-      api.get<{ success: boolean; data: SellerDashboardData }>('/seller/dashboard'),
+    queryFn: () => api.get<{ success: boolean; data: SellerDashboardData }>('/seller/dashboard'),
     select: (res) => (res.data as unknown as { data: SellerDashboardData })?.data ?? res.data,
     enabled: ready && isAuthenticated(),
     retry: 1,
   });
 
-  useEffect(() => {
-    if (error) toast.error('Failed to load dashboard data');
-  }, [error]);
+  useEffect(() => { if (error) toast.error('Failed to load dashboard data'); }, [error]);
 
-  if (!ready || isLoading) return <DashboardSkeleton />;
-
-  // Fallback empty state data
   const d: SellerDashboardData = data ?? {
-    gmv_month: 0,
-    gmv_change_pct: 0,
-    pending_payout: 0,
-    next_payout_date: '',
-    active_listings: 0,
-    orders_awaiting_action: 0,
-    aging_listings_count: 0,
-    orders_awaiting_shipment: 0,
-    recent_orders: [],
+    gmv_month: 0, gmv_change_pct: 0, pending_payout: 0, next_payout_date: '',
+    active_listings: 0, orders_awaiting_action: 0, aging_listings_count: 0,
+    orders_awaiting_shipment: 0, recent_orders: [],
   };
 
-  return (
-    <div className="space-y-6 max-w-7xl">
-      {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Here&apos;s what&apos;s happening with your store today.</p>
-        </div>
-        <Link
-          href="/seller/listings/new"
-          className="flex items-center gap-2 py-2 px-4 rounded-lg text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Listing
-        </Link>
-      </div>
+  // ── Capital recovery waterfall ────────────────────────────────────────────────
+  const gmv = d.gmv_month;
+  const fee = gmv * 0.025;
+  const gst = fee * 0.18;
+  const net = gmv - fee - gst;
+  const pct = (n: number) => (gmv > 0 ? Math.max((n / gmv) * 100, 1.5) : 0);
 
+  const name = (user?.name ?? 'there').split(' ')[0];
+  const bizName = (user as (typeof user) & { business_name?: string })?.business_name ?? 'Your business';
+  const city = user?.city ?? 'India';
+
+  return (
+    <AppShell
+      navItems={SELLER_NAV}
+      brandSub={SELLER_BRAND_SUB}
+      sidebarFooter={<SellerSidebarFooter />}
+      title={`Good morning, ${name}`}
+      subtitle={`${bizName} · ${city}`}
+      actions={
+        <Link href="/seller/listings/new" className="nm-btn-primary no-underline" style={{ fontSize: 13.5, padding: '9px 16px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Plus size={16} /> New listing
+        </Link>
+      }
+    >
       {/* Alert banners */}
       {d.aging_listings_count > 0 && (
-        <div className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0" />
-            <p className="text-sm font-medium text-amber-800">
-              {d.aging_listings_count} listing{d.aging_listings_count > 1 ? 's' : ''} haven&apos;t sold in 30+ days
-            </p>
-          </div>
-          <Link
-            href="/seller/listings"
-            className="flex items-center gap-1 text-sm font-semibold text-amber-700 hover:text-amber-900 whitespace-nowrap"
-          >
-            Review Listings <ArrowRight className="w-4 h-4" />
+        <div
+          className="flex items-center gap-3 mb-3"
+          style={{ background: 'var(--nm-gold-soft)', border: '1px solid var(--nm-gold-line)', borderRadius: 14, padding: '12px 18px' }}
+        >
+          <AlertTriangle size={18} style={{ color: 'var(--nm-gold-ink)', flexShrink: 0 }} />
+          <p style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--nm-gold-ink)', margin: 0, flex: 1 }}>
+            {d.aging_listings_count} listing{d.aging_listings_count > 1 ? 's' : ''} haven&apos;t sold in 30+ days
+          </p>
+          <Link href="/seller/listings" className="flex items-center gap-1 no-underline" style={{ fontSize: 13, fontWeight: 700, color: 'var(--nm-gold-ink)', whiteSpace: 'nowrap' }}>
+            Review <ArrowRight size={15} />
           </Link>
         </div>
       )}
 
       {d.orders_awaiting_shipment > 0 && (
-        <div className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3">
-          <div className="flex items-center gap-3">
-            <Truck className="w-5 h-5 text-amber-600 flex-shrink-0" />
-            <p className="text-sm font-medium text-amber-800">
-              {d.orders_awaiting_shipment} order{d.orders_awaiting_shipment > 1 ? 's' : ''} awaiting shipment
-            </p>
-          </div>
-          <Link
-            href="/seller/orders"
-            className="flex items-center gap-1 text-sm font-semibold text-amber-700 hover:text-amber-900 whitespace-nowrap"
-          >
-            View Orders <ArrowRight className="w-4 h-4" />
+        <div
+          className="flex items-center gap-3 mb-3"
+          style={{ background: 'var(--nm-info-soft)', border: '1px solid #c9e3ec', borderRadius: 14, padding: '12px 18px' }}
+        >
+          <Truck size={18} style={{ color: 'var(--nm-info)', flexShrink: 0 }} />
+          <p style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--nm-info)', margin: 0, flex: 1 }}>
+            {d.orders_awaiting_shipment} order{d.orders_awaiting_shipment > 1 ? 's' : ''} awaiting shipment
+          </p>
+          <Link href="/seller/orders" className="flex items-center gap-1 no-underline" style={{ fontSize: 13, fontWeight: 700, color: 'var(--nm-info)', whiteSpace: 'nowrap' }}>
+            View orders <ArrowRight size={15} />
           </Link>
         </div>
       )}
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          label="GMV This Month"
-          value={formatCurrency(d.gmv_month)}
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-1 mb-6">
+        <Kpi
+          label="GMV this month"
+          value={inr(d.gmv_month)}
+          sub={d.gmv_change_pct ? `${d.gmv_change_pct >= 0 ? '+' : ''}${d.gmv_change_pct.toFixed(1)}% vs last month` : undefined}
+          positive={d.gmv_change_pct >= 0}
           icon={IndianRupee}
-          iconColor="text-primary-600 bg-primary-50"
-          trend={d.gmv_change_pct}
-          trendLabel="vs last month"
         />
-        <KpiCard
-          label="Pending Payout"
-          value={formatCurrency(d.pending_payout)}
-          subtitle={d.next_payout_date ? `Next payout: ${formatDate(d.next_payout_date)}` : 'No payout scheduled'}
+        <Kpi
+          label="Pending payout"
+          value={inr(d.pending_payout)}
+          sub={d.next_payout_date ? `Expected ${fmtDate(d.next_payout_date)}` : 'No payout scheduled'}
           icon={Wallet}
-          iconColor="text-green-600 bg-green-50"
         />
-        <KpiCard
-          label="Active Listings"
-          value={d.active_listings.toLocaleString('en-IN')}
-          icon={Package}
-          iconColor="text-indigo-600 bg-indigo-50"
-        />
-        <KpiCard
-          label="Orders Awaiting Action"
+        <Kpi label="Active listings" value={d.active_listings.toLocaleString('en-IN')} icon={Package} />
+        <Kpi
+          label="Awaiting action"
           value={d.orders_awaiting_action.toLocaleString('en-IN')}
-          icon={ShoppingCart}
-          iconColor="text-amber-600 bg-amber-50"
+          positive={d.orders_awaiting_action === 0}
+          icon={ShoppingBag}
         />
       </div>
 
-      {/* Capital Recovery Estimator */}
-      <div className="card p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <IndianRupee className="w-4 h-4 text-green-600" />
-          <h2 className="text-base font-semibold text-gray-900">Capital Recovery Estimator</h2>
-        </div>
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div className="bg-gray-50 rounded-xl p-3">
-            <p className="text-xs text-gray-500 mb-1">GMV This Month</p>
-            <p className="text-xl font-bold text-gray-900">{formatCurrency(d.gmv_month)}</p>
-          </div>
-          <div className="bg-green-50 rounded-xl p-3">
-            <p className="text-xs text-gray-500 mb-1">After Platform Fee (2.5%)</p>
-            <p className="text-xl font-bold text-green-700">{formatCurrency(d.gmv_month * 0.975)}</p>
-          </div>
-          <div className="bg-blue-50 rounded-xl p-3">
-            <p className="text-xs text-gray-500 mb-1">Pending Payout</p>
-            <p className="text-xl font-bold text-blue-700">{formatCurrency(d.pending_payout)}</p>
-            {d.next_payout_date && (
-              <p className="text-[10px] text-blue-500 mt-0.5">Due {formatDate(d.next_payout_date)}</p>
-            )}
-          </div>
-        </div>
-        <p className="text-xs text-gray-400 mt-3 text-center">
-          Platform fee: 2.5% + 18% GST on fee. Full payout after buyer confirms delivery.
-        </p>
-      </div>
+      {/* Two-column row */}
+      <div className="grid gap-5 mb-6" style={{ gridTemplateColumns: '1.2fr .8fr' }}>
+        {/* Capital recovery estimator */}
+        <div className="nm-card" style={{ padding: 22 }}>
+          <h3 className="disp" style={{ fontSize: 16, fontWeight: 700, margin: 0, color: 'var(--nm-ink)' }}>Capital recovery</h3>
+          <p style={{ fontSize: 13, color: 'var(--nm-muted)', margin: '4px 0 18px' }}>
+            What you&apos;ll actually receive this cycle.
+          </p>
 
-      {/* Recent Orders */}
-      <div className="card overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-900">Recent Orders</h2>
-          <Link
-            href="/seller/orders"
-            className="text-sm font-medium text-primary-600 hover:text-primary-700 flex items-center gap-1"
+          {/* Waterfall */}
+          <div className="flex flex-col gap-3">
+            {/* GMV */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span style={{ fontSize: 12.5, color: 'var(--nm-muted)', fontWeight: 600 }}>Gross sales (GMV)</span>
+                <span className="num" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--nm-ink)' }}>{inr(gmv)}</span>
+              </div>
+              <div style={{ height: 22, borderRadius: 8, background: 'var(--nm-green)', width: '100%' }} />
+            </div>
+
+            {/* Platform fee */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span style={{ fontSize: 12.5, color: 'var(--nm-muted)', fontWeight: 600 }}>− Platform fee 2.5%</span>
+                <span className="num" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--nm-red)' }}>−{inr(fee)}</span>
+              </div>
+              <div style={{ height: 22, borderRadius: 8, background: 'var(--nm-red-soft)', borderLeft: '4px solid var(--nm-red)', width: `${pct(fee)}%`, minWidth: 60 }} />
+            </div>
+
+            {/* GST on fee */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span style={{ fontSize: 12.5, color: 'var(--nm-muted)', fontWeight: 600 }}>− GST on fee 18%</span>
+                <span className="num" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--nm-red)' }}>−{inr(gst)}</span>
+              </div>
+              <div style={{ height: 18, borderRadius: 8, background: 'var(--nm-red-soft)', borderLeft: '4px solid var(--nm-red)', width: `${pct(gst)}%`, minWidth: 40 }} />
+            </div>
+          </div>
+
+          {/* Net result */}
+          <div
+            className="flex items-center justify-between mt-5"
+            style={{ background: 'var(--nm-green-soft)', borderRadius: 14, padding: '16px 18px' }}
           >
-            View All <ArrowRight className="w-3.5 h-3.5" />
-          </Link>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--nm-green)' }}>Net payout</span>
+            <span className="num disp" style={{ fontSize: 22, fontWeight: 800, color: 'var(--nm-green)' }}>{inr(net)}</span>
+          </div>
         </div>
 
-        {d.recent_orders.length === 0 ? (
-          <div className="text-center py-14">
-            <ShoppingCart className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-            <h3 className="text-sm font-semibold text-gray-600 mb-1">No orders yet</h3>
-            <p className="text-xs text-gray-400">Orders will appear here once buyers purchase your listings.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 text-xs uppercase tracking-wider text-gray-500">
-                  <th className="text-left px-6 py-3 font-medium">Order #</th>
-                  <th className="text-left px-6 py-3 font-medium">Buyer</th>
-                  <th className="text-left px-6 py-3 font-medium">Product</th>
-                  <th className="text-left px-6 py-3 font-medium">Amount</th>
-                  <th className="text-left px-6 py-3 font-medium">Status</th>
-                  <th className="text-left px-6 py-3 font-medium">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {d.recent_orders.map((order) => {
-                  const sc = STATUS_CONFIG[order.status] ?? {
-                    label: order.status,
-                    color: 'bg-gray-100 text-gray-600',
-                    icon: Clock,
-                  };
-                  const StatusIcon = sc.icon;
-                  return (
-                    <tr key={order.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 font-mono text-xs font-semibold text-primary-600">
-                        {order.order_number ?? order.id.slice(0, 8).toUpperCase()}
-                      </td>
-                      <td className="px-6 py-4 font-medium text-gray-800 max-w-[140px] truncate">
-                        {order.buyer_business_name ?? '—'}
-                      </td>
-                      <td className="px-6 py-4 text-gray-600 max-w-[200px] truncate">
-                        {order.listing_title}
-                      </td>
-                      <td className="px-6 py-4 font-semibold text-gray-900 whitespace-nowrap">
-                        {formatCurrency(order.total_amount)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${sc.color}`}>
-                          <StatusIcon className="w-3 h-3" />
-                          {sc.label}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-gray-500 whitespace-nowrap">
-                        {formatDate(order.created_at)}
-                      </td>
-                    </tr>
-                  );
-                })}
+        {/* Recent orders */}
+        <SectionCard
+          title="Recent orders"
+          action={<Link href="/seller/orders" className="no-underline" style={{ fontSize: 13, color: 'var(--nm-green)', fontWeight: 600 }}>View all →</Link>}
+        >
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8"><Loader2 size={22} className="animate-spin" style={{ color: 'var(--nm-green)' }} /></div>
+          ) : d.recent_orders.length === 0 ? (
+            <div className="text-center py-8">
+              <ShoppingBag size={34} style={{ color: 'var(--nm-faint)', margin: '0 auto 10px' }} />
+              <p style={{ color: 'var(--nm-muted)', fontSize: 13 }}>No orders yet.</p>
+            </div>
+          ) : (
+            <table className="nm-table">
+              <thead><tr>
+                <th>Order</th><th>Item</th><th>Buyer</th><th style={{ textAlign: 'right' }}>Amount</th><th>Status</th>
+              </tr></thead>
+              <tbody>
+                {d.recent_orders.slice(0, 6).map((o) => (
+                  <tr key={o.id} style={{ cursor: 'pointer' }} onClick={() => router.push(`/seller/orders`)}>
+                    <td style={{ fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 700, fontSize: 12.5 }}>
+                      {o.order_number ?? o.id.slice(0, 8).toUpperCase()}
+                    </td>
+                    <td style={{ maxWidth: 130 }}>
+                      <span className="disp" style={{ fontSize: 12.5, fontWeight: 600, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {o.listing_title}
+                      </span>
+                    </td>
+                    <td style={{ fontSize: 12.5, color: 'var(--nm-muted)', maxWidth: 110, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {o.buyer_business_name || o.buyer_name || '—'}
+                    </td>
+                    <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--nm-green)' }}>{inr(Number(o.total_amount ?? 0))}</td>
+                    <td><Badge status={STATUS_LABEL[o.status] ?? 'Pending'} /></td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-          </div>
-        )}
+          )}
+        </SectionCard>
       </div>
 
       {/* Quick actions */}
-      <div>
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h2>
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href="/seller/listings/new"
-            className="flex items-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-white transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add New Listing
-          </Link>
-          <Link
-            href="/seller/orders"
-            className="flex items-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            <ShoppingCart className="w-4 h-4" />
-            View All Orders
-          </Link>
-          <Link
-            href="/seller/payouts"
-            className="flex items-center gap-2 py-2.5 px-4 rounded-lg text-sm font-semibold border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            <Wallet className="w-4 h-4" />
-            Check Payouts
-          </Link>
-        </div>
+      <div className="flex flex-wrap gap-3">
+        <Link href="/seller/listings/new" className="nm-btn-soft no-underline" style={{ fontSize: 13.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <Plus size={16} /> Add listing
+        </Link>
+        <Link href="/seller/orders" className="nm-btn-soft no-underline" style={{ fontSize: 13.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <ShoppingBag size={16} /> View all orders
+        </Link>
+        <Link href="/seller/payouts" className="nm-btn-soft no-underline" style={{ fontSize: 13.5, display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <Wallet size={16} /> Check payouts
+        </Link>
       </div>
-    </div>
+    </AppShell>
   );
 }

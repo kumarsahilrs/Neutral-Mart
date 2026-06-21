@@ -45,7 +45,7 @@ export default function NegotiationModal({ listing, onClose, onAccepted }: Negot
   const [aiSuggestion, setAiSuggestion] = useState<{ price: number; rationale: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Poll for negotiation updates every 15s when in 'submitted' state
+  // Poll for negotiation updates every 8s when in 'submitted' state
   useEffect(() => {
     if (step !== 'submitted' || !negotiationId) return;
     async function poll() {
@@ -72,7 +72,8 @@ export default function NegotiationModal({ listing, onClose, onAccepted }: Negot
         }
       } catch { /* non-critical */ }
     }
-    pollRef.current = setInterval(poll, 15000);
+    poll(); // immediate first check
+    pollRef.current = setInterval(poll, 8000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [step, negotiationId, rounds.length, onAccepted, onClose]);
 
@@ -300,35 +301,42 @@ export default function NegotiationModal({ listing, onClose, onAccepted }: Negot
           )}
 
           {step === 'submitted' && (
-            <div className="text-center space-y-4 py-4">
-              <div className="w-16 h-16 rounded-full bg-nm-primary-pale flex items-center justify-center mx-auto">
-                <CheckCircle className="w-8 h-8 text-nm-primary" />
+            <div className="text-center py-4" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ width: 64, height: 64, borderRadius: 999, background: 'var(--nm-green-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+                <CheckCircle size={28} style={{ color: 'var(--nm-green)' }} />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-nm-text dark:text-nm-text-dark">Offer Sent!</h3>
-                <p className="text-sm text-nm-text-muted dark:text-nm-text-dark-muted mt-1">
-                  Your offer of <strong>₹{parseFloat(offerAmount).toLocaleString('en-IN')}</strong> has been sent to the seller.
+                <h3 className="disp" style={{ fontSize: 18, fontWeight: 800, color: 'var(--nm-ink)', margin: 0 }}>Offer Sent!</h3>
+                <p style={{ fontSize: 13.5, color: 'var(--nm-muted)', marginTop: 4 }}>
+                  Your offer of <strong style={{ color: 'var(--nm-ink)' }}>₹{parseFloat(offerAmount).toLocaleString('en-IN')}</strong> has been sent to the seller.
                 </p>
               </div>
 
               {/* Offer thread */}
-              <div className="nm-card p-4 text-left space-y-3">
-                <p className="text-xs font-semibold text-nm-text-muted uppercase tracking-wider">Negotiation Thread</p>
+              <div className="nm-card" style={{ padding: 16, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="flex items-center justify-between">
+                  <p className="label">Negotiation thread</p>
+                  {/* Live polling indicator */}
+                  <span className="flex items-center gap-1.5" style={{ fontSize: 11, color: 'var(--nm-green)' }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--nm-green)', display: 'inline-block', animation: 'pulse 1.5s infinite' }} />
+                    Live
+                  </span>
+                </div>
                 {rounds.map((round, i) => (
-                  <div key={i} className={`flex ${round.by === 'buyer' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] rounded-xl px-3 py-2 ${
-                      round.by === 'buyer'
-                        ? 'bg-nm-primary text-white rounded-br-none'
-                        : 'bg-nm-bg dark:bg-nm-surface-dark text-nm-text dark:text-nm-text-dark rounded-bl-none'
-                    }`}>
-                      <p className="text-xs font-semibold mb-0.5 opacity-75">{round.by === 'buyer' ? 'You' : 'Seller'}</p>
-                      <p className="text-sm font-bold">₹{round.amount.toLocaleString('en-IN')}</p>
-                      {round.message && <p className="text-xs mt-0.5 opacity-80">{round.message}</p>}
+                  <div key={i} style={{ display: 'flex', justifyContent: round.by === 'buyer' ? 'flex-end' : 'flex-start' }}>
+                    <div style={{
+                      maxWidth: '80%', borderRadius: 14, padding: '8px 14px',
+                      background: round.by === 'buyer' ? 'var(--nm-green)' : 'var(--nm-panel)',
+                      color: round.by === 'buyer' ? '#fff' : 'var(--nm-ink)',
+                    }}>
+                      <p style={{ fontSize: 11, fontWeight: 600, margin: '0 0 2px', opacity: 0.75 }}>{round.by === 'buyer' ? 'You' : 'Seller'}</p>
+                      <p className="num" style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>₹{round.amount.toLocaleString('en-IN')}</p>
+                      {round.message && <p style={{ fontSize: 11.5, margin: '3px 0 0', opacity: 0.8 }}>{round.message}</p>}
                     </div>
                   </div>
                 ))}
-                <p className="text-xs text-center text-nm-text-muted">
-                  Waiting for seller response • Expires in 48 hours
+                <p style={{ fontSize: 11.5, textAlign: 'center', color: 'var(--nm-muted)' }}>
+                  Waiting for seller response · Expires in 48 hours
                 </p>
               </div>
 

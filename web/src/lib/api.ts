@@ -30,6 +30,18 @@ export default api;
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export const authApi = {
+  // Email OTP
+  sendEmailOtp: (email: string) =>
+    api.post('/auth/email/otp/send', { email }),
+  verifyEmailOtp: (email: string, otp: string) =>
+    api.post<{ data: { access_token: string; refresh_token: string; user: { id: string; name: string; email: string; role: string }; registered: boolean } }>(
+      '/auth/email/otp/verify', { email, otp }
+    ),
+  // Google
+  googleLogin: (id_token: string) =>
+    api.post<{ data: { access_token: string; refresh_token: string; user: { id: string; name: string; email: string; role: string }; registered: boolean } }>(
+      '/auth/google', { id_token }
+    ),
   sendOtp: (phone: string) =>
     api.post('/auth/otp/send', { phone }),
 
@@ -157,6 +169,56 @@ export const ordersApi = {
 
   cancelOrder: (id: string, reason?: string) =>
     api.patch(`/orders/${id}/cancel`, { reason }),
+
+  getVoiceMessages: (orderId: string) =>
+    api.get<{ success: boolean; data: VoiceMessage[] }>(`/orders/${orderId}/voice-messages`),
+
+  sendVoiceMessage: (orderId: string, audioBlob: Blob) => {
+    const form = new FormData();
+    form.append('audio', audioBlob, 'voice.webm');
+    return api.post<{ success: boolean; data: { id: string; audioUrl: string; transcription: string; durationSec: number } }>(
+      `/orders/${orderId}/voice-messages`, form,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+  },
+
+  generatePo: (orderId: string) =>
+    api.post<{ success: boolean; data: { poUrl: string; poNumber: string } }>(`/invoices/po/${orderId}`),
+};
+
+export const rfqApi = {
+  submit: (data: { listing_id: string; quantity: number; target_price?: number; message?: string }) =>
+    api.post<{ success: boolean; data: { rfqId: string } }>('/rfq', data),
+
+  getMyRfqs: () =>
+    api.get<{ success: boolean; data: RfqRow[] }>('/rfq/my'),
+
+  getSellerRfqs: () =>
+    api.get<{ success: boolean; data: RfqRow[] }>('/rfq/seller'),
+
+  respond: (rfqId: string, data: { quoted_price: number; min_quantity?: number; message?: string; valid_hours?: number }) =>
+    api.patch(`/rfq/${rfqId}/respond`, data),
+
+  accept: (rfqId: string) =>
+    api.patch<{ success: boolean; data: { orderId: string; orderNumber: string; total: number } }>(`/rfq/${rfqId}/accept`),
+
+  reject: (rfqId: string) =>
+    api.patch(`/rfq/${rfqId}/reject`),
+};
+
+export const complianceApi = {
+  check: (listingId: string) =>
+    api.get<{
+      success: boolean;
+      data: {
+        compliant: boolean;
+        missing: string[];
+        required_documents: string[];
+        document_labels: Record<string, string>;
+        warning_message: string | null;
+        check_before: string;
+      };
+    }>(`/listings/${listingId}/compliance`),
 };
 
 // ── Payments ──────────────────────────────────────────────────────────────────
@@ -309,6 +371,123 @@ export const aiApi = {
     discount_pct: number;
     language: 'en' | 'hi' | 'hinglish';
   }) => api.post<{ success: boolean; data: { hook: string } }>('/ai/content/hook', data),
+
+  generateGraphic: (data: {
+    product_title: string;
+    sector: string;
+    price: number;
+    mrp?: number;
+    condition_grade?: string;
+    city?: string;
+    format: 'square' | 'horizontal' | 'vertical';
+    quality?: 'standard' | 'hd';
+    buyer_profile_id?: string;
+  }) => api.post<{
+    success: boolean;
+    data: { image_b64: string; format: string; size: string; cost_credits: number };
+  }>('/ai/marketing/graphic', data),
+
+  getCreditBalance: (buyerProfileId: string) =>
+    api.get<{
+      success: boolean;
+      data: { balance: number; daily_used: number; daily_limit: number; daily_remaining: number };
+    }>('/ai/credits/balance', {
+      headers: { 'x-buyer-profile-id': buyerProfileId },
+    }),
+
+  enhanceImage: (data: {
+    image_b64: string; image_mime?: string;
+    mode?: 'auto' | 'ai'; buyer_profile_id?: string;
+  }) => api.post<{
+    success: boolean;
+    data: { image_b64: string; mode: string; cost_credits: number };
+  }>('/ai/marketing/enhance-image', data),
+
+  generateReelScript: (data: {
+    product_title: string; sector: string; price: number; mrp?: number;
+    condition_grade?: string; city?: string;
+    language: 'en' | 'hi' | 'hinglish' | 'gu' | 'pa' | 'mr';
+    duration?: 15 | 20 | 30; buyer_profile_id?: string;
+  }) => api.post<{
+    success: boolean;
+    data: {
+      hook_line: string;
+      segments: Array<{ time: string; text: string; action: string }>;
+      caption: string; hashtags: string[];
+      voiceover_style: string; background_music: string;
+      duration_sec: number; cost_credits: number;
+    };
+  }>('/ai/marketing/reel-script', data),
+};
+
+// ── Agent ─────────────────────────────────────────────────────────────────────
+export interface AgentToolCall {
+  tool: string;
+  input: Record<string, unknown>;
+  id: string;
+}
+
+export interface AgentMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export const agentApi = {
+  sendMessage: (data: {
+    message: string;
+    conversation_history: AgentMessage[];
+    user_id: string;
+    user_name: string;
+    user_role: 'buyer' | 'seller' | 'admin';
+    user_language: 'en' | 'hi';
+    current_route: string;
+  }) => api.post<{
+    success: boolean;
+    data: {
+      response: string;
+      tool_calls: AgentToolCall[];
+      conversation_history: AgentMessage[];
+      stop_reason: string;
+    };
+  }>('/ai/agent/message', data),
+
+  synthesiseSpeech: (data: { text: string; language_code?: string }) =>
+    api.post<{ success: boolean; data: { audio_b64: string; mime_type: string } }>(
+      '/ai/agent/tts', data
+    ),
+};
+
+// ── Storefront ────────────────────────────────────────────────────────────────
+export const storefrontApi = {
+  get: (slug: string, params?: { page?: number; limit?: number }) =>
+    api.get<{
+      success: boolean;
+      data: {
+        seller: {
+          business_name: string; slug: string; banner_url: string | null;
+          tagline: string | null; verification_tier: string;
+          city: string | null; state: string | null; total_gmv: number;
+          reseller_margin_pct: number;
+        };
+        listings: Listing[];
+        total: number; page: number; limit: number;
+      };
+    }>(`/storefront/${slug}`, { params }),
+
+  getMySettings: () =>
+    api.get<{
+      success: boolean;
+      data: {
+        seller_slug: string | null; storefront_enabled: boolean;
+        storefront_banner_url: string | null; storefront_tagline: string | null;
+        reseller_margin_pct: number;
+      };
+    }>('/storefront/my/settings'),
+
+  updateSettings: (data: {
+    seller_slug?: string; storefront_enabled?: boolean;
+    storefront_tagline?: string; reseller_margin_pct?: number;
+  }) => api.patch('/storefront/my/settings', data),
 };
 
 // ── Logistics ─────────────────────────────────────────────────────────────────
@@ -484,4 +663,32 @@ export interface ReferralPayout {
   amount: number;
   bank_last4: string;
   status: 'pending' | 'processing' | 'paid';
+}
+
+export interface VoiceMessage {
+  id: string;
+  audio_url: string;
+  duration_sec: number;
+  transcription: string | null;
+  created_at: string;
+  sender_name: string;
+  is_mine: boolean;
+}
+
+export interface RfqRow {
+  id: string;
+  quantity: number;
+  target_price: number | null;
+  message: string | null;
+  status: 'pending' | 'quoted' | 'accepted' | 'rejected' | 'expired' | 'ordered';
+  expires_at: string;
+  created_at: string;
+  listing_title: string;
+  asking_price: number;
+  quoted_price: number | null;
+  min_quantity: number | null;
+  seller_message: string | null;
+  valid_until: string | null;
+  buyer_company?: string;
+  available_quantity?: number;
 }

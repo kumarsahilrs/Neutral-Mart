@@ -5,38 +5,45 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import {
-  ArrowLeft, Loader2, AlertCircle, Upload, X, CheckCircle,
-  AlertTriangle, Package, FileText, ChevronRight, ChevronLeft
+  Loader2, AlertCircle, X, CheckCircle, Plus, Package,
+  LayoutDashboard, ShoppingBag, Heart, Gift, User,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import Header from '@/components/Header';
+import { AppShell, Badge, inr } from '@/components/ui';
+import { type NavItem } from '@/components/ui/Sidebar';
 import { ordersApi, disputeApi, type OrderDetail } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 
-type DisputeReason = {
-  key: string;
-  icon: string;
-  label: string;
-};
-
-const REASONS: DisputeReason[] = [
-  { key: 'not_received', icon: '📦', label: 'Item not received' },
-  { key: 'wrong_item', icon: '❌', label: 'Wrong item delivered' },
-  { key: 'damaged', icon: '💥', label: 'Item damaged' },
-  { key: 'quality_mismatch', icon: '⚠️', label: 'Quality doesn\'t match description' },
-  { key: 'quantity_mismatch', icon: '📊', label: 'Quantity mismatch' },
-  { key: 'other', icon: '💬', label: 'Other' },
+const NAV: NavItem[] = [
+  { label: 'Dashboard',   href: '/dashboard', icon: LayoutDashboard },
+  { label: 'Browse lots', href: '/listings',  icon: ShoppingBag },
+  { label: 'Orders',      href: '/orders',    icon: Package },
+  { label: 'Watchlist',   href: '/watchlist', icon: Heart },
+  { label: 'Referral',    href: '/referral',  icon: Gift },
+  { label: 'Profile',     href: '/profile',   icon: User },
 ];
 
-const MIN_DESC = 50;
-const MAX_DESC = 2000;
-const MAX_FILES = 10;
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const sidebarFooter = (
+  <div style={{ background: 'rgba(255,255,255,.07)', borderRadius: 12, padding: '12px 14px' }}>
+    <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,.65)', margin: 0, lineHeight: 1.4 }}>🛡 Escrow protected — every order is held safe until you confirm delivery.</p>
+  </div>
+);
+
+const REASONS = [
+  { key: 'not_as_described', label: 'Item not as described' },
+  { key: 'quantity_mismatch', label: 'Quantity mismatch' },
+  { key: 'damaged', label: 'Damaged on arrival' },
+  { key: 'wrong_grade', label: 'Wrong grade' },
+  { key: 'not_received', label: 'Never delivered' },
+  { key: 'other', label: 'Other' },
+];
+
+const MAX_FILES = 3;
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 interface UploadedFile {
   file: File;
   key: string;
-  progress: number;
   uploading: boolean;
   done: boolean;
   error: boolean;
@@ -47,17 +54,13 @@ export default function DisputePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
-  const [step, setStep] = useState(1);
   const [reason, setReason] = useState('');
   const [description, setDescription] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!isAuthenticated()) router.replace('/login');
-  }, [router]);
+  useEffect(() => { if (!isAuthenticated()) router.replace('/login'); }, [router]);
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['order', id],
@@ -69,67 +72,32 @@ export default function DisputePage() {
     enabled: !!id && isAuthenticated(),
   });
 
-  const descLen = description.length;
-  const descValid = descLen >= MIN_DESC;
-
   async function uploadFile(file: File) {
     const newFile: UploadedFile = {
-      file,
-      key: '',
-      progress: 0,
-      uploading: true,
-      done: false,
-      error: false,
+      file, key: '', uploading: true, done: false, error: false,
       preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
     };
     setUploadedFiles((prev) => [...prev, newFile]);
-
     try {
       const res = await disputeApi.getUploadUrl('pending', file.name, file.type);
       const payload = res.data as unknown as { data?: { uploadUrl: string; key: string } } | { uploadUrl: string; key: string };
       const { uploadUrl, key } = (payload as { data?: { uploadUrl: string; key: string } })?.data
         ?? payload as { uploadUrl: string; key: string };
-
-      // Simulate progress then PUT
-      setUploadedFiles((prev) =>
-        prev.map((f) => f.file === file ? { ...f, progress: 30 } : f)
-      );
-
-      await fetch(uploadUrl, {
-        method: 'PUT',
-        body: file,
-        headers: { 'Content-Type': file.type },
-      });
-
-      setUploadedFiles((prev) =>
-        prev.map((f) => f.file === file ? { ...f, progress: 100, uploading: false, done: true, key } : f)
-      );
+      await fetch(uploadUrl, { method: 'PUT', body: file, headers: { 'Content-Type': file.type } });
+      setUploadedFiles((prev) => prev.map((f) => f.file === file ? { ...f, uploading: false, done: true, key } : f));
     } catch {
-      setUploadedFiles((prev) =>
-        prev.map((f) => f.file === file ? { ...f, uploading: false, error: true, progress: 0 } : f)
-      );
+      setUploadedFiles((prev) => prev.map((f) => f.file === file ? { ...f, uploading: false, error: true } : f));
       toast.error(`Failed to upload ${file.name}`);
     }
   }
 
   function handleFiles(files: FileList | File[]) {
     const fileArr = Array.from(files);
-    const current = uploadedFiles.length;
-    const remaining = MAX_FILES - current;
-    if (remaining <= 0) {
-      toast.error(`Maximum ${MAX_FILES} files allowed`);
-      return;
-    }
-    const toUpload = fileArr.slice(0, remaining);
-    for (const file of toUpload) {
-      if (file.size > MAX_FILE_SIZE) {
-        toast.error(`${file.name} exceeds 5MB limit`);
-        continue;
-      }
-      if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
-        toast.error(`${file.name} is not an image or PDF`);
-        continue;
-      }
+    const remaining = MAX_FILES - uploadedFiles.length;
+    if (remaining <= 0) { toast.error(`Maximum ${MAX_FILES} files allowed`); return; }
+    for (const file of fileArr.slice(0, remaining)) {
+      if (file.size > MAX_FILE_SIZE) { toast.error(`${file.name} exceeds 5MB limit`); continue; }
+      if (!file.type.startsWith('image/') && file.type !== 'application/pdf') { toast.error(`${file.name} is not an image or PDF`); continue; }
       uploadFile(file);
     }
   }
@@ -137,21 +105,18 @@ export default function DisputePage() {
   const removeFile = useCallback((idx: number) => {
     setUploadedFiles((prev) => {
       const file = prev[idx];
-      if (file.preview) URL.revokeObjectURL(file.preview);
+      if (file?.preview) URL.revokeObjectURL(file.preview);
       return prev.filter((_, i) => i !== idx);
     });
   }, []);
 
   async function handleSubmit() {
+    if (!reason) { toast.error('Please select a reason'); return; }
+    if (description.trim().length < 20) { toast.error('Please describe the issue (min 20 characters)'); return; }
     const evidenceKeys = uploadedFiles.filter((f) => f.done).map((f) => f.key);
     setSubmitting(true);
     try {
-      await disputeApi.raiseDispute({
-        order_id: id,
-        reason,
-        description,
-        evidence_keys: evidenceKeys,
-      });
+      await disputeApi.raiseDispute({ order_id: id, reason, description, evidence_keys: evidenceKeys });
       toast.success('Dispute raised. Escrow frozen.');
       router.push(`/orders/${id}`);
     } catch {
@@ -161,303 +126,114 @@ export default function DisputePage() {
     }
   }
 
-  const steps = ['Reason', 'Description', 'Evidence', 'Review'];
-
-  function canGoNext(): boolean {
-    if (step === 1) return !!reason;
-    if (step === 2) return descValid;
-    return true;
-  }
-
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <Header />
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
-        </div>
-      </div>
+      <AppShell navItems={NAV} brandSub="Buyer Portal" sidebarFooter={sidebarFooter} title="Raise Dispute">
+        <div className="flex items-center justify-center py-16"><Loader2 size={28} className="animate-spin" style={{ color: 'var(--nm-green)' }} /></div>
+      </AppShell>
     );
   }
 
+  const orderNumber = order?.order_number ?? id.slice(0, 8).toUpperCase();
+  const img = order?.listing_image ?? order?.listing_images?.[0];
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Header />
-      <main className="flex-1 max-w-2xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
-        <Link
-          href={`/orders/${id}`}
-          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-primary-600 font-medium mb-6 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Order
-        </Link>
+    <AppShell
+      navItems={NAV} brandSub="Buyer Portal" sidebarFooter={sidebarFooter}
+      title="Raise Dispute"
+      actions={<Badge status="Disputed" />}
+    >
+      <div className="flex flex-col" style={{ gap: 20, maxWidth: 720 }}>
+        {/* Order context */}
+        <div className="nm-card flex items-center gap-4" style={{ padding: 16 }}>
+          <div className="flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ width: 48, height: 48, borderRadius: 10, background: 'var(--nm-panel)' }}>
+            {img ? <img src={img} alt="" className="w-full h-full object-cover" /> : <Package size={22} style={{ color: 'var(--nm-faint)' }} />}
+          </div>
+          <div className="min-w-0">
+            <p className="disp" style={{ fontSize: 14, fontWeight: 700, color: 'var(--nm-ink)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{order?.listing_title ?? `Order NM-${orderNumber}`}</p>
+            <p style={{ fontSize: 12.5, color: 'var(--nm-muted)', margin: '3px 0 0' }}>
+              by {order?.seller_business_name ?? 'Seller'} · qty {order?.quantity ?? '—'} · {inr(order?.total_amount ?? 0)}
+            </p>
+          </div>
+        </div>
 
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Raise a Dispute</h1>
-        {order && (
-          <p className="text-sm text-gray-500 mb-6">
-            Order #{order.order_number ?? id.slice(0, 8).toUpperCase()} · {order.listing_title}
-          </p>
-        )}
-
-        {/* Progress bar */}
-        <div className="mb-8">
-          <div className="flex items-center gap-0">
-            {steps.map((label, idx) => {
-              const stepNum = idx + 1;
-              const done = step > stepNum;
-              const current = step === stepNum;
+        {/* Reason chips */}
+        <div className="nm-card" style={{ padding: 20 }}>
+          <h3 className="disp" style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--nm-ink)', margin: '0 0 14px' }}>What went wrong?</h3>
+          <div className="flex flex-wrap gap-2">
+            {REASONS.map((r) => {
+              const sel = reason === r.key;
               return (
-                <div key={label} className="flex items-center flex-1">
-                  <div className="flex flex-col items-center">
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
-                        done
-                          ? 'bg-primary-600 text-white'
-                          : current
-                            ? 'bg-primary-600 text-white ring-4 ring-primary-100'
-                            : 'bg-gray-200 text-gray-500'
-                      }`}
-                    >
-                      {done ? <CheckCircle className="w-4 h-4" /> : stepNum}
-                    </div>
-                    <span className={`text-xs mt-1 font-medium ${current ? 'text-primary-600' : done ? 'text-primary-600' : 'text-gray-400'}`}>
-                      {label}
-                    </span>
-                  </div>
-                  {idx < steps.length - 1 && (
-                    <div className={`flex-1 h-0.5 mb-4 mx-1 ${step > stepNum ? 'bg-primary-600' : 'bg-gray-200'}`} />
-                  )}
-                </div>
+                <button key={r.key} onClick={() => setReason(r.key)} className="nm-pill" style={{
+                  cursor: 'pointer', fontWeight: 600, padding: '8px 14px',
+                  border: sel ? '1px solid var(--nm-green)' : '1px solid var(--nm-line)',
+                  background: sel ? 'var(--nm-green-soft)' : 'transparent',
+                  color: sel ? 'var(--nm-green)' : 'var(--nm-muted)',
+                }}>
+                  {r.label}
+                </button>
               );
             })}
           </div>
         </div>
 
-        {/* Step 1 — Reason */}
-        {step === 1 && (
-          <div className="card p-6">
-            <h2 className="text-base font-semibold text-gray-900 mb-4">What is the issue?</h2>
-            <div className="space-y-3">
-              {REASONS.map((r) => (
-                <label
-                  key={r.key}
-                  className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${
-                    reason === r.key
-                      ? 'border-primary-500 bg-primary-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="reason"
-                    value={r.key}
-                    checked={reason === r.key}
-                    onChange={() => setReason(r.key)}
-                    className="accent-indigo-600"
-                  />
-                  <span className="text-xl">{r.icon}</span>
-                  <span className="text-sm font-medium text-gray-800">{r.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Step 2 — Description */}
-        {step === 2 && (
-          <div className="card p-6">
-            <h2 className="text-base font-semibold text-gray-900 mb-1">Describe the issue</h2>
-            <p className="text-sm text-gray-500 mb-4">Be specific — this helps us resolve your case faster</p>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value.slice(0, MAX_DESC))}
-              rows={7}
-              placeholder="Describe what happened in detail..."
-              className="input-field resize-none text-sm"
-            />
-            <div className="flex items-center justify-between mt-2">
-              {!descValid && descLen > 0 && (
-                <p className="text-xs text-red-500">Minimum {MIN_DESC} characters required</p>
-              )}
-              {!descValid && descLen === 0 && <div />}
-              {descValid && (
-                <p className="text-xs text-green-600 flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3" />
-                  Good description
-                </p>
-              )}
-              <p className={`text-xs ml-auto ${descLen > MAX_DESC * 0.9 ? 'text-amber-500' : 'text-gray-400'}`}>
-                {descLen} / {MAX_DESC}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3 — Evidence */}
-        {step === 3 && (
-          <div className="card p-6">
-            <h2 className="text-base font-semibold text-gray-900 mb-1">Upload Evidence</h2>
-            <p className="text-sm text-gray-500 mb-4">
-              Photos, videos, or PDFs. Max {MAX_FILES} files, 5MB each.
-            </p>
-
-            {/* Drop zone */}
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragging(false);
-                handleFiles(e.dataTransfer.files);
-              }}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors ${
-                dragging ? 'border-primary-400 bg-primary-50' : 'border-gray-300 hover:border-primary-400 hover:bg-gray-50'
-              }`}
-            >
-              <Upload className="w-8 h-8 text-gray-400 mb-2" />
-              <p className="text-sm font-medium text-gray-700">Drag & drop files here</p>
-              <p className="text-xs text-gray-400 mt-1">or click to browse</p>
-              <p className="text-xs text-gray-400 mt-1">Images (JPG, PNG, WebP) or PDF</p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/*,application/pdf"
-                className="hidden"
-                onChange={(e) => e.target.files && handleFiles(e.target.files)}
-              />
-            </div>
-
-            {uploadedFiles.length > 0 && (
-              <div className="mt-4 space-y-2">
-                {uploadedFiles.map((uf, idx) => (
-                  <div key={idx} className="flex items-center gap-3 p-3 border border-gray-200 rounded-xl">
-                    {/* Preview / icon */}
-                    <div className="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                      {uf.preview ? (
-                        <img src={uf.preview} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <FileText className="w-5 h-5 text-gray-400" />
-                      )}
-                    </div>
-
-                    {/* Name + progress */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-gray-800 truncate">{uf.file.name}</p>
-                      <p className="text-xs text-gray-400">
-                        {(uf.file.size / 1024).toFixed(0)} KB
-                      </p>
-                      {uf.uploading && (
-                        <div className="mt-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary-600 transition-all duration-300"
-                            style={{ width: `${uf.progress}%` }}
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Status */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {uf.uploading && <Loader2 className="w-4 h-4 animate-spin text-primary-600" />}
-                      {uf.done && <CheckCircle className="w-4 h-4 text-green-500" />}
-                      {uf.error && <AlertCircle className="w-4 h-4 text-red-500" />}
-                      <button
-                        onClick={() => removeFile(idx)}
-                        className="text-gray-400 hover:text-red-500 transition-colors"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <p className="text-xs text-gray-400 mt-3">
-              {uploadedFiles.length} / {MAX_FILES} files uploaded
-            </p>
-          </div>
-        )}
-
-        {/* Step 4 — Review */}
-        {step === 4 && (
-          <div className="space-y-4">
-            <div className="card p-6">
-              <h2 className="text-base font-semibold text-gray-900 mb-4">Review Your Dispute</h2>
-
-              <div className="space-y-3 text-sm">
-                <div className="flex items-start gap-2 border-b border-gray-100 pb-3">
-                  <span className="text-gray-500 w-24 flex-shrink-0">Order</span>
-                  <span className="font-medium text-gray-800">
-                    #{order?.order_number ?? id.slice(0, 8).toUpperCase()}
-                  </span>
-                </div>
-                <div className="flex items-start gap-2 border-b border-gray-100 pb-3">
-                  <span className="text-gray-500 w-24 flex-shrink-0">Reason</span>
-                  <span className="font-medium text-gray-800">
-                    {REASONS.find((r) => r.key === reason)?.label ?? reason}
-                  </span>
-                </div>
-                <div className="flex items-start gap-2 border-b border-gray-100 pb-3">
-                  <span className="text-gray-500 w-24 flex-shrink-0">Description</span>
-                  <span className="text-gray-700 line-clamp-3">{description}</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <span className="text-gray-500 w-24 flex-shrink-0">Evidence</span>
-                  <span className="font-medium text-gray-800">
-                    {uploadedFiles.filter((f) => f.done).length} file{uploadedFiles.filter((f) => f.done).length !== 1 ? 's' : ''} attached
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Warning */}
-            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
-              <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div className="text-sm">
-                <p className="font-semibold text-amber-800 mb-0.5">Escrow will be frozen</p>
-                <p className="text-amber-700">
-                  Submitting this dispute will freeze the escrow for this order. Funds cannot be released until the dispute is resolved (up to 72 hours).
-                </p>
-              </div>
-            </div>
-
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="w-full py-3 px-6 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
-            >
-              {submitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Package className="w-5 h-5" />}
-              Submit Dispute
-            </button>
-          </div>
-        )}
-
-        {/* Navigation */}
-        <div className="flex items-center justify-between mt-6">
-          <button
-            onClick={() => setStep((s) => Math.max(1, s - 1))}
-            disabled={step === 1}
-            className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Back
-          </button>
-
-          {step < 4 ? (
-            <button
-              onClick={() => setStep((s) => s + 1)}
-              disabled={!canGoNext()}
-              className="btn-primary flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          ) : null}
+        {/* Description */}
+        <div className="nm-card" style={{ padding: 20 }}>
+          <h3 className="disp" style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--nm-ink)', margin: '0 0 12px' }}>Describe the issue</h3>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value.slice(0, 2000))}
+            rows={4}
+            className="nm-input"
+            style={{ resize: 'none' }}
+            placeholder="e.g. The lot was listed as Grade A but 40 units arrived scratched and water-damaged. Photos attached."
+          />
         </div>
-      </main>
-    </div>
+
+        {/* Evidence */}
+        <div className="nm-card" style={{ padding: 20 }}>
+          <h3 className="disp" style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--nm-ink)', margin: '0 0 4px' }}>Upload evidence</h3>
+          <p style={{ fontSize: 12.5, color: 'var(--nm-muted)', margin: '0 0 14px' }}>Photos or PDFs · max {MAX_FILES} files, 5MB each</p>
+          <div className="flex gap-3">
+            {Array.from({ length: MAX_FILES }).map((_, slot) => {
+              const uf = uploadedFiles[slot];
+              if (uf) {
+                return (
+                  <div key={slot} className="relative overflow-hidden" style={{ width: 80, height: 80, borderRadius: 10, background: 'var(--nm-panel)', border: '1px solid var(--nm-line)' }}>
+                    {uf.preview ? <img src={uf.preview} alt="" className="w-full h-full object-cover" /> : (
+                      <div className="w-full h-full flex items-center justify-center"><Package size={22} style={{ color: 'var(--nm-faint)' }} /></div>
+                    )}
+                    {uf.uploading && <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(255,255,255,.7)' }}><Loader2 size={18} className="animate-spin" style={{ color: 'var(--nm-green)' }} /></div>}
+                    {uf.done && <span className="absolute" style={{ bottom: 4, left: 4 }}><CheckCircle size={16} style={{ color: 'var(--nm-green)' }} /></span>}
+                    {uf.error && <span className="absolute" style={{ bottom: 4, left: 4 }}><AlertCircle size={16} style={{ color: 'var(--nm-red)' }} /></span>}
+                    <button onClick={() => removeFile(slot)} className="absolute flex items-center justify-center" style={{ top: 4, right: 4, width: 20, height: 20, borderRadius: 999, background: 'rgba(0,0,0,.55)', border: 'none', cursor: 'pointer' }}>
+                      <X size={12} color="#fff" />
+                    </button>
+                  </div>
+                );
+              }
+              const isNextSlot = slot === uploadedFiles.length;
+              return (
+                <button key={slot} disabled={!isNextSlot} onClick={() => fileInputRef.current?.click()} className="flex items-center justify-center" style={{
+                  width: 80, height: 80, borderRadius: 10, background: 'var(--nm-panel)',
+                  border: '1.5px dashed var(--nm-line)', cursor: isNextSlot ? 'pointer' : 'default', opacity: isNextSlot ? 1 : 0.5,
+                }}>
+                  <Plus size={22} style={{ color: 'var(--nm-faint)' }} />
+                </button>
+              );
+            })}
+          </div>
+          <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf" className="hidden" onChange={(e) => e.target.files && handleFiles(e.target.files)} />
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3">
+          <Link href={`/orders/${id}`} className="nm-btn-secondary no-underline">Cancel</Link>
+          <button onClick={handleSubmit} disabled={submitting} className="nm-btn-danger" style={{ opacity: submitting ? 0.6 : 1 }}>
+            {submitting && <Loader2 size={16} className="animate-spin" />} Submit dispute
+          </button>
+        </div>
+      </div>
+    </AppShell>
   );
 }

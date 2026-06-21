@@ -60,11 +60,11 @@ async def log_ai_error(user_id: Optional[str], action_type: str, model: str, err
     )
 
 def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Rough cost estimate in USD — update rates as Anthropic pricing changes."""
+    """Rough cost estimate in USD."""
     RATES = {
-        "claude-3-5-sonnet-20241022": (0.000003, 0.000015),  # per token in/out
-        "claude-3-haiku-20240307": (0.00000025, 0.00000125),
-        "whisper-1": (0.000006, 0),  # per token (audio min)
+        "gpt-4o":       (0.0000025, 0.00001),
+        "gpt-4o-mini":  (0.00000015, 0.0000006),
+        "whisper-1":    (0.000006, 0),
     }
-    in_rate, out_rate = RATES.get(model, (0.000003, 0.000015))
+    in_rate, out_rate = RATES.get(model, (0.0000025, 0.00001))
     return round(input_tokens * in_rate + output_tokens * out_rate, 8)

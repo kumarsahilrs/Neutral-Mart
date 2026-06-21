@@ -12,6 +12,7 @@ import { adminInventoryRouter } from './routes/adminInventory';
 import { adminCategoriesRouter } from './routes/adminCategories';
 import { sellerRouter } from './routes/seller';
 import { buyerRouter } from './routes/buyer';
+import { storefrontRouter } from './routes/storefront';
 
 const app = express();
 const PORT = process.env.INVENTORY_SERVICE_PORT || 3002;
@@ -26,6 +27,7 @@ app.use('/sectors', sectorsRouter);
 app.use('/images', imagesRouter);
 app.use('/seller', sellerRouter);
 app.use('/buyer', buyerRouter);
+app.use('/storefront', storefrontRouter);
 app.use('/admin/inventory', adminInventoryRouter);
 app.use('/admin/categories', adminCategoriesRouter);
 

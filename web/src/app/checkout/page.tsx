@@ -8,11 +8,11 @@ import { useQuery } from '@tanstack/react-query';
 import Script from 'next/script';
 import Link from 'next/link';
 import {
-  ArrowLeft, Package, Loader2, AlertCircle, MapPin, Truck, ChevronDown, ChevronUp,
-  Lock, CheckCircle, Plus, IndianRupee
+  ArrowLeft, Package, Loader2, AlertCircle, Truck, Shield,
+  Plus, Lock, MapPin, Store, Hand,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import Header from '@/components/Header';
+import { TopNav, inr } from '@/components/ui';
 import TierVerifyModal from '@/components/TierVerifyModal';
 import { inventoryApi, ordersApi, paymentsApi, addressApi, logisticsApi, type Address, type Listing } from '@/lib/api';
 import { isAuthenticated, getUser } from '@/lib/auth';
@@ -32,15 +32,15 @@ const GST_ON_FEE_PCT = 18;
 type FreightType = 'self_ship' | 'platform_logistics' | 'buyer_pickup';
 
 interface NewAddressForm {
-  name: string;
-  phone: string;
-  address_line1: string;
-  address_line2: string;
-  city: string;
-  state: string;
-  pincode: string;
-  save_for_future: boolean;
+  name: string; phone: string; address_line1: string; address_line2: string;
+  city: string; state: string; pincode: string; save_for_future: boolean;
 }
+
+const FREIGHT_OPTS: { value: FreightType; label: string; subtitle: string; icon: typeof Truck }[] = [
+  { value: 'platform_logistics', label: 'Platform logistics — Delhivery', subtitle: 'NirmalMandi arranges pickup & delivery · 2–4 days', icon: Truck },
+  { value: 'self_ship', label: 'Seller ship', subtitle: 'Seller arranges delivery · 3–7 days', icon: Store },
+  { value: 'buyer_pickup', label: 'Buyer pickup', subtitle: 'Coordinate pickup directly with seller', icon: Hand },
+];
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -58,12 +58,10 @@ export default function CheckoutPage() {
   const [freightEstimate, setFreightEstimate] = useState<number | null>(null);
   const [loadingFreight, setLoadingFreight] = useState(false);
   const [placing, setPlacing] = useState(false);
-  const [escrowCollapsed, setEscrowCollapsed] = useState(false);
   const [razorpayReady, setRazorpayReady] = useState(false);
   const [tierModal, setTierModal] = useState<2 | 3 | null>(null);
   const [tierVerified, setTierVerified] = useState(false);
 
-  // Redirect if not authenticated
   useEffect(() => {
     if (!isAuthenticated()) {
       toast.error('Please login to checkout');
@@ -71,20 +69,6 @@ export default function CheckoutPage() {
     }
   }, [router]);
 
-  // Collapse escrow box after first view
-  useEffect(() => {
-    const seen = localStorage.getItem('nm_escrow_seen');
-    if (seen) setEscrowCollapsed(true);
-  }, []);
-
-  function handleEscrowToggle() {
-    if (!escrowCollapsed) {
-      localStorage.setItem('nm_escrow_seen', '1');
-    }
-    setEscrowCollapsed((v) => !v);
-  }
-
-  // Fetch listing
   const { data: listing, isLoading: loadingListing, isError: listingError } = useQuery({
     queryKey: ['listing', listingId],
     queryFn: () => inventoryApi.getListing(listingId),
@@ -95,7 +79,6 @@ export default function CheckoutPage() {
     enabled: !!listingId,
   });
 
-  // Fetch saved addresses
   const { data: addresses, isLoading: loadingAddresses } = useQuery({
     queryKey: ['addresses'],
     queryFn: () => addressApi.getAddresses(),
@@ -109,23 +92,17 @@ export default function CheckoutPage() {
 
   const addressList: Address[] = Array.isArray(addresses) ? addresses : [];
 
-  // Auto-select first address
   useEffect(() => {
-    if (addressList.length > 0 && !selectedAddressId) {
-      setSelectedAddressId(addressList[0].id);
-    }
+    if (addressList.length > 0 && !selectedAddressId) setSelectedAddressId(addressList[0].id);
   }, [addressList, selectedAddressId]);
 
   const selectedAddress = addressList.find((a) => a.id === selectedAddressId) ?? null;
-
   const quantity = quantityParam;
 
-  // Fetch freight estimate when platform_logistics selected and address chosen
   const fetchFreightEstimate = useCallback(async () => {
     if (!listing || !selectedAddress) return;
     setLoadingFreight(true);
     try {
-      // Rough weight: 0.5 kg per unit, min 0.5 kg
       const weightKg = Math.max(0.5, Math.ceil(quantity * 0.5));
       const res = await logisticsApi.getFreightEstimate({
         origin_pincode: String((listing as Record<string, unknown>).pincode ?? '110001'),
@@ -143,28 +120,20 @@ export default function CheckoutPage() {
   }, [listing, selectedAddress, quantity]);
 
   useEffect(() => {
-    if (freightType === 'platform_logistics' && selectedAddress) {
-      fetchFreightEstimate();
-    }
+    if (freightType === 'platform_logistics' && selectedAddress) fetchFreightEstimate();
   }, [freightType, selectedAddress, fetchFreightEstimate]);
 
-  // Amount calculations
   const pricePerUnit = Number((listing as Record<string, unknown> | null)?.asking_price ?? (listing as Record<string, unknown> | null)?.price_per_unit ?? 0);
   const subtotal = pricePerUnit * quantity;
   const platformFee = (subtotal * PLATFORM_FEE_PCT) / 100;
   const gstOnFee = (platformFee * GST_ON_FEE_PCT) / 100;
   const freight = freightType === 'platform_logistics'
     ? (freightEstimate ?? null)
-    : freightType === 'self_ship' || freightType === 'buyer_pickup'
-      ? 0
-      : null;
+    : freightType === 'self_ship' || freightType === 'buyer_pickup' ? 0 : null;
   const total = subtotal + platformFee + gstOnFee + (freight ?? 0);
 
   function validateForm(): boolean {
-    if (!selectedAddressId && !showNewAddressForm) {
-      toast.error('Please select or add a delivery address');
-      return false;
-    }
+    if (!selectedAddressId && !showNewAddressForm) { toast.error('Please select or add a delivery address'); return false; }
     if (showNewAddressForm) {
       if (!newAddress.name.trim()) { toast.error('Name is required'); return false; }
       if (!/^[6-9]\d{9}$/.test(newAddress.phone)) { toast.error('Enter a valid 10-digit mobile number'); return false; }
@@ -173,30 +142,21 @@ export default function CheckoutPage() {
       if (!newAddress.state) { toast.error('State is required'); return false; }
       if (!/^\d{6}$/.test(newAddress.pincode)) { toast.error('Enter a valid 6-digit pincode'); return false; }
     }
-    if (!freightType) {
-      toast.error('Please select a freight option');
-      return false;
-    }
+    if (!freightType) { toast.error('Please select a freight option'); return false; }
     return true;
   }
 
   async function handlePay() {
     if (!validateForm()) return;
-    if (!razorpayReady) {
-      toast.error('Payment gateway is loading. Please try again.');
-      return;
-    }
+    if (!razorpayReady) { toast.error('Payment gateway is loading. Please try again.'); return; }
 
-    // Tier verification gate
     if (!tierVerified) {
       if (total >= 10_00_000) { setTierModal(3); return; }
       if (total >= 1_00_000) { setTierModal(2); return; }
     }
 
     setPlacing(true);
-
     try {
-      // Build delivery address
       let deliveryAddress: Address | undefined;
       if (showNewAddressForm) {
         const res = await addressApi.addAddress({
@@ -216,7 +176,6 @@ export default function CheckoutPage() {
         deliveryAddress = selectedAddress ?? undefined;
       }
 
-      // Place order
       const orderRes = await ordersApi.placeOrder({
         listing_id: listingId,
         quantity,
@@ -225,10 +184,8 @@ export default function CheckoutPage() {
       });
       const orderPayload = (orderRes.data as unknown as { data?: { orderId: string; order_number: string } } | { orderId: string; order_number: string });
       const orderId = (orderPayload as { data?: { orderId: string } })?.data?.orderId
-        ?? (orderPayload as { orderId?: string })?.orderId
-        ?? '';
+        ?? (orderPayload as { orderId?: string })?.orderId ?? '';
 
-      // Initiate payment
       const totalPaisa = Math.round(total * 100);
       const payRes = await paymentsApi.initiatePayment(orderId, totalPaisa);
       const payPayload = (payRes.data as unknown as { data?: { razorpay_order_id: string; razorpay_key: string; amount: number } } | { razorpay_order_id: string; razorpay_key: string; amount: number });
@@ -237,26 +194,16 @@ export default function CheckoutPage() {
 
       const user = getUser();
 
-      // Open Razorpay
       const rzp = new (window as unknown as { Razorpay: new (opts: Record<string, unknown>) => { open(): void } }).Razorpay({
         key: rzpData.razorpay_key,
         amount: rzpData.amount,
         order_id: rzpData.razorpay_order_id,
         name: 'NirmalMandi',
         description: String((listing as Record<string, unknown> | null)?.title ?? 'Inventory Purchase'),
-        prefill: {
-          name: user?.name ?? '',
-          contact: user?.phone ?? '',
-        },
-        theme: { color: '#4f46e5' },
-        handler: () => {
-          router.push(`/orders/${orderId}?paid=true`);
-        },
-        modal: {
-          ondismiss: () => {
-            setPlacing(false);
-          },
-        },
+        prefill: { name: user?.name ?? '', contact: user?.phone ?? '' },
+        theme: { color: '#1f6b3a' },
+        handler: () => { router.push(`/orders/${orderId}?paid=true`); },
+        modal: { ondismiss: () => { setPlacing(false); } },
       });
       rzp.open();
     } catch (err) {
@@ -268,36 +215,33 @@ export default function CheckoutPage() {
 
   if (loadingListing) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <Header />
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
-        </div>
+      <div style={{ minHeight: '100vh', background: 'var(--nm-paper)' }}>
+        <TopNav />
+        <div className="flex items-center justify-center" style={{ padding: '80px 0' }}><Loader2 size={28} className="animate-spin" style={{ color: 'var(--nm-green)' }} /></div>
       </div>
     );
   }
 
   if (listingError || !listing) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <Header />
-        <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
-          <AlertCircle className="w-12 h-12 text-red-400" />
-          <h2 className="text-xl font-semibold text-gray-800">Listing not found</h2>
-          <Link href="/listings" className="btn-primary">Browse listings</Link>
+      <div style={{ minHeight: '100vh', background: 'var(--nm-paper)' }}>
+        <TopNav />
+        <div className="flex flex-col items-center justify-center gap-4 text-center" style={{ padding: '80px 16px' }}>
+          <AlertCircle size={48} style={{ color: 'var(--nm-red)' }} />
+          <h2 className="disp" style={{ fontSize: 20, fontWeight: 700, color: 'var(--nm-ink)' }}>Listing not found</h2>
+          <Link href="/listings" className="nm-btn-primary no-underline">Browse listings</Link>
         </div>
       </div>
     );
   }
 
   const l = listing as Record<string, unknown>;
+  const grade = String(l.condition_grade ?? '');
+  const payDisabled = placing || !freightType || loadingFreight || (freightType === 'platform_logistics' && freightEstimate === null);
 
   return (
     <>
-      <Script
-        src="https://checkout.razorpay.com/v1/checkout.js"
-        onReady={() => setRazorpayReady(true)}
-      />
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" onReady={() => setRazorpayReady(true)} />
       {tierModal && (
         <TierVerifyModal
           tier={tierModal}
@@ -306,272 +250,152 @@ export default function CheckoutPage() {
           onClose={() => setTierModal(null)}
         />
       )}
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        <Header />
-        <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
-          <Link
-            href={`/listings/${listingId}`}
-            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-primary-600 font-medium mb-6 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back to listing
+      <div style={{ minHeight: '100vh', background: 'var(--nm-paper)' }}>
+        <TopNav />
+
+        {/* Escrow pill */}
+        <div className="flex justify-center" style={{ paddingTop: 22 }}>
+          <span className="nm-pill" style={{ background: 'var(--nm-green-soft)', color: 'var(--nm-green)', fontWeight: 700, fontSize: 12.5, padding: '7px 16px' }}>
+            <Shield size={14} /> Escrow-protected checkout
+          </span>
+        </div>
+
+        <main style={{ maxWidth: 1080, margin: '0 auto', width: '100%', padding: '20px 24px 56px' }}>
+          <Link href={`/listings/${listingId}`} className="inline-flex items-center gap-1.5 no-underline" style={{ fontSize: 13.5, color: 'var(--nm-muted)', fontWeight: 600, marginBottom: 20 }}>
+            <ArrowLeft size={16} /> Back to listing
           </Link>
 
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">Checkout</h1>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* LEFT: Order Summary */}
-            <div className="space-y-5">
-              <div className="card p-5">
-                <h2 className="text-base font-semibold text-gray-900 mb-4">Order Summary</h2>
-
-                {/* Listing preview */}
-                <div className="flex items-start gap-4 pb-4 mb-4 border-b border-gray-100">
-                  <div className="w-16 h-16 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                    {Array.isArray(l.images) && (l.images as string[]).length > 0 ? (
-                      <img src={(l.images as string[])[0]} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <Package className="w-8 h-8 text-primary-300" />
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr]" style={{ gap: 32 }}>
+            {/* ── Summary ── */}
+            <div>
+              <div className="sticky" style={{ top: 24 }}>
+                <div className="nm-card" style={{ padding: 20 }}>
+                  {/* Product mini-card */}
+                  <div className="nm-card flex items-center gap-3" style={{ padding: 14, marginBottom: 18 }}>
+                    <div className="flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ width: 48, height: 48, borderRadius: 10, background: 'var(--nm-panel)' }}>
+                      {Array.isArray(l.images) && (l.images as string[]).length > 0
+                        ? <img src={(l.images as string[])[0]} alt="" className="w-full h-full object-cover" />
+                        : <Package size={22} style={{ color: 'var(--nm-faint)' }} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="disp" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--nm-ink)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{String(l.title ?? '')}</p>
+                      <p style={{ fontSize: 12, color: 'var(--nm-muted)', margin: '2px 0 0' }}>{String(l.seller_business_name ?? l.seller_name ?? 'Seller')}</p>
+                    </div>
+                    {grade && (
+                      <span className="nm-pill flex-shrink-0" style={{ background: 'var(--nm-gold-soft)', color: 'var(--nm-gold-ink)', fontSize: 11 }}>Grade {grade}</span>
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 truncate">{String(l.title ?? '')}</p>
-                    <p className="text-sm text-gray-500 mt-0.5">
-                      {String(l.seller_business_name ?? l.seller_name ?? 'Seller')}
-                    </p>
-                    {!!l.condition_grade && (
-                      <span className="inline-block text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded mt-1">
-                        Grade: {String(l.condition_grade)}
-                      </span>
-                    )}
+
+                  {/* Line items */}
+                  <div className="flex flex-col">
+                    <LineItem label={`Subtotal (${quantity} × ${inr(pricePerUnit)})`} value={inr(subtotal)} />
+                    <LineItem label={`Platform fee (${PLATFORM_FEE_PCT}%)`} value={inr(platformFee)} />
+                    <LineItem label={`GST on fee (${GST_ON_FEE_PCT}%)`} value={inr(gstOnFee)} />
+                    <LineItem
+                      label="Freight"
+                      valueNode={
+                        loadingFreight ? <span style={{ color: 'var(--nm-faint)' }}>Calculating…</span>
+                          : freight === null && !freightType ? <span style={{ color: 'var(--nm-faint)', fontStyle: 'italic' }}>Select option</span>
+                          : freight === null && freightType === 'platform_logistics' ? <span style={{ color: 'var(--nm-red)', fontStyle: 'italic', fontSize: 12 }}>Unavailable</span>
+                          : freight === 0 ? <span style={{ color: 'var(--nm-green)', fontWeight: 700 }}>Free</span>
+                          : <span className="num" style={{ color: 'var(--nm-ink)' }}>{inr(freight ?? 0)}</span>
+                      }
+                    />
+                  </div>
+
+                  <div style={{ borderTop: '1px dashed var(--nm-line)', margin: '14px 0' }} />
+
+                  <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
+                    <span className="disp" style={{ fontSize: 16, fontWeight: 700, color: 'var(--nm-ink)' }}>Total</span>
+                    <span className="num" style={{ fontSize: 20, fontWeight: 800, color: 'var(--nm-green)' }}>{inr(total)}</span>
+                  </div>
+
+                  <div className="flex items-start gap-2.5" style={{ background: 'var(--nm-green-soft)', borderRadius: 12, padding: 14 }}>
+                    <Shield size={18} style={{ color: 'var(--nm-green)', flexShrink: 0, marginTop: 1 }} />
+                    <p style={{ fontSize: 12.5, color: 'var(--nm-green)', margin: 0, lineHeight: 1.45 }}>Your payment is held in escrow until you confirm delivery.</p>
                   </div>
                 </div>
-
-                <div className="text-sm text-gray-600 mb-4">
-                  <span className="font-medium">{quantity.toLocaleString('en-IN')}</span> {String(l.unit ?? 'unit')}
-                  {quantity !== 1 ? 's' : ''} × ₹{pricePerUnit.toLocaleString('en-IN')} each
-                </div>
-
-                {/* Amount breakdown */}
-                <div className="border border-gray-200 rounded-xl overflow-hidden text-sm">
-                  <div className="divide-y divide-gray-100">
-                    <div className="flex justify-between px-4 py-3 text-gray-600">
-                      <span>Subtotal ({quantity} × ₹{pricePerUnit.toLocaleString('en-IN')})</span>
-                      <span>₹{subtotal.toLocaleString('en-IN')}</span>
-                    </div>
-                    <div className="flex justify-between px-4 py-3 text-gray-600">
-                      <span>Platform fee ({PLATFORM_FEE_PCT}%)</span>
-                      <span>₹{platformFee.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between px-4 py-3 text-gray-600">
-                      <span>GST on fee ({GST_ON_FEE_PCT}%)</span>
-                      <span>₹{gstOnFee.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between px-4 py-3 text-gray-600">
-                      <span>Freight</span>
-                      <span>
-                        {loadingFreight
-                          ? <span className="text-gray-400">Calculating...</span>
-                          : freight === null && !freightType
-                            ? <span className="text-gray-400 italic">Select freight option</span>
-                            : freight === null && freightType === 'platform_logistics'
-                              ? <span className="text-red-400 italic text-xs">Estimate unavailable</span>
-                              : freight === 0
-                                ? <span className="text-green-600 font-medium">Free</span>
-                                : `₹${(freight ?? 0).toLocaleString('en-IN')}`}
-                      </span>
-                    </div>
-                    <div className="flex justify-between px-4 py-3 bg-gray-50 font-bold text-gray-900 text-base">
-                      <span>Total</span>
-                      <span className="text-primary-600 flex items-center gap-0.5">
-                        <IndianRupee className="w-4 h-4" />
-                        {total.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Escrow info box */}
-              <div className="bg-indigo-50 border border-indigo-200 rounded-xl overflow-hidden">
-                <button
-                  onClick={handleEscrowToggle}
-                  className="w-full flex items-center justify-between px-4 py-3 text-left"
-                >
-                  <div className="flex items-center gap-2">
-                    <Lock className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-                    <span className="text-sm font-semibold text-indigo-800">Your payment is escrow-protected</span>
-                  </div>
-                  {escrowCollapsed
-                    ? <ChevronDown className="w-4 h-4 text-indigo-500" />
-                    : <ChevronUp className="w-4 h-4 text-indigo-500" />}
-                </button>
-                {!escrowCollapsed && (
-                  <div className="px-4 pb-4 text-sm text-indigo-700 leading-relaxed">
-                    Funds are held safely in escrow and only released to the seller after you confirm delivery. In case of any dispute, NirmalMandi mediates on your behalf.
-                  </div>
-                )}
               </div>
             </div>
 
-            {/* RIGHT: Checkout Form */}
-            <div className="space-y-5">
-              {/* Section A: Delivery Address */}
-              <div className="card p-5">
-                <h2 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-primary-600" />
-                  Delivery Address
-                </h2>
-
+            {/* ── Form ── */}
+            <div className="flex flex-col" style={{ gap: 28 }}>
+              {/* Section 1: Delivery address */}
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--nm-faint)', margin: '0 0 12px' }}>Delivery address</p>
                 {loadingAddresses ? (
-                  <div className="flex items-center gap-2 text-sm text-gray-400">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading addresses...
+                  <div className="flex items-center gap-2" style={{ fontSize: 13, color: 'var(--nm-faint)' }}>
+                    <Loader2 size={16} className="animate-spin" /> Loading addresses…
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {addressList.map((addr) => (
-                      <label
-                        key={addr.id}
-                        className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
-                          selectedAddressId === addr.id && !showNewAddressForm
-                            ? 'border-primary-500 bg-primary-50'
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="address"
-                          value={addr.id}
-                          checked={selectedAddressId === addr.id && !showNewAddressForm}
-                          onChange={() => {
-                            setSelectedAddressId(addr.id);
-                            setShowNewAddressForm(false);
-                          }}
-                          className="mt-0.5 accent-indigo-600"
-                        />
-                        <div className="text-sm">
-                          <p className="font-medium text-gray-900">{addr.name}</p>
-                          <p className="text-gray-600">{addr.address_line1}{addr.address_line2 ? `, ${addr.address_line2}` : ''}</p>
-                          <p className="text-gray-600">{addr.city}, {addr.state} — {addr.pincode}</p>
-                          <p className="text-gray-500">{addr.phone}</p>
-                        </div>
-                      </label>
-                    ))}
+                  <div className="flex flex-col" style={{ gap: 10 }}>
+                    {addressList.map((addr) => {
+                      const sel = selectedAddressId === addr.id && !showNewAddressForm;
+                      return (
+                        <label key={addr.id} className="flex items-start gap-3 cursor-pointer" style={{
+                          padding: 14, borderRadius: 12,
+                          border: sel ? '1.5px solid var(--nm-green)' : '1px solid var(--nm-line)',
+                          background: sel ? 'var(--nm-green-soft)' : 'var(--nm-card)',
+                        }}>
+                          <input type="radio" name="address" checked={sel} onChange={() => { setSelectedAddressId(addr.id); setShowNewAddressForm(false); }} style={{ marginTop: 3, accentColor: 'var(--nm-green)' }} />
+                          <div style={{ fontSize: 13 }}>
+                            <p className="disp" style={{ fontWeight: 700, color: 'var(--nm-ink)', margin: 0 }}>{addr.name}</p>
+                            <p style={{ color: 'var(--nm-muted)', margin: '2px 0 0' }}>{addr.address_line1}{addr.address_line2 ? `, ${addr.address_line2}` : ''}</p>
+                            <p style={{ color: 'var(--nm-muted)', margin: 0 }}>{addr.city}, {addr.state} — {addr.pincode}</p>
+                            <p style={{ color: 'var(--nm-faint)', margin: '2px 0 0' }}>{addr.phone}</p>
+                          </div>
+                        </label>
+                      );
+                    })}
 
-                    {/* Add new address option */}
-                    <label
-                      className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
-                        showNewAddressForm
-                          ? 'border-primary-500 bg-primary-50'
-                          : 'border-dashed border-gray-300 hover:border-primary-400'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="address"
-                        checked={showNewAddressForm}
-                        onChange={() => {
-                          setShowNewAddressForm(true);
-                          setSelectedAddressId('');
-                        }}
-                        className="accent-indigo-600"
-                      />
-                      <div className="flex items-center gap-1.5 text-sm font-medium text-primary-600">
-                        <Plus className="w-4 h-4" />
-                        Add New Address
-                      </div>
+                    <label className="flex items-center gap-3 cursor-pointer" style={{
+                      padding: 14, borderRadius: 12,
+                      border: showNewAddressForm ? '1.5px solid var(--nm-green)' : '1px dashed var(--nm-line)',
+                      background: showNewAddressForm ? 'var(--nm-green-soft)' : 'transparent',
+                    }}>
+                      <input type="radio" name="address" checked={showNewAddressForm} onChange={() => { setShowNewAddressForm(true); setSelectedAddressId(''); }} style={{ accentColor: 'var(--nm-green)' }} />
+                      <span className="flex items-center gap-1.5" style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--nm-green)' }}><Plus size={16} /> Add new address</span>
                     </label>
 
-                    {/* New address form */}
                     {showNewAddressForm && (
-                      <div className="space-y-3 pt-2 pl-6">
-                        <div className="grid grid-cols-2 gap-3">
+                      <div className="flex flex-col" style={{ gap: 12, paddingTop: 4 }}>
+                        <div className="grid grid-cols-2" style={{ gap: 12 }}>
                           <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Full Name *</label>
-                            <input
-                              type="text"
-                              value={newAddress.name}
-                              onChange={(e) => setNewAddress((p) => ({ ...p, name: e.target.value }))}
-                              className="input-field text-sm"
-                              placeholder="Raj Kumar"
-                            />
+                            <label className="nm-label">Full name *</label>
+                            <input value={newAddress.name} onChange={(e) => setNewAddress((p) => ({ ...p, name: e.target.value }))} className="nm-input" placeholder="Raj Kumar" />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Phone *</label>
-                            <input
-                              type="tel"
-                              value={newAddress.phone}
-                              onChange={(e) => setNewAddress((p) => ({ ...p, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
-                              className="input-field text-sm"
-                              placeholder="9876543210"
-                              inputMode="numeric"
-                            />
+                            <label className="nm-label">Phone *</label>
+                            <input value={newAddress.phone} onChange={(e) => setNewAddress((p) => ({ ...p, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))} className="nm-input" placeholder="9876543210" inputMode="numeric" />
                           </div>
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Address Line 1 *</label>
-                          <input
-                            type="text"
-                            value={newAddress.address_line1}
-                            onChange={(e) => setNewAddress((p) => ({ ...p, address_line1: e.target.value }))}
-                            className="input-field text-sm"
-                            placeholder="Plot no, Street, Area"
-                          />
+                          <label className="nm-label">Address line 1 *</label>
+                          <input value={newAddress.address_line1} onChange={(e) => setNewAddress((p) => ({ ...p, address_line1: e.target.value }))} className="nm-input" placeholder="Plot no, Street, Area" />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Address Line 2</label>
-                          <input
-                            type="text"
-                            value={newAddress.address_line2}
-                            onChange={(e) => setNewAddress((p) => ({ ...p, address_line2: e.target.value }))}
-                            className="input-field text-sm"
-                            placeholder="Landmark, Building (optional)"
-                          />
+                          <label className="nm-label">Address line 2</label>
+                          <input value={newAddress.address_line2} onChange={(e) => setNewAddress((p) => ({ ...p, address_line2: e.target.value }))} className="nm-input" placeholder="Landmark, Building (optional)" />
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2" style={{ gap: 12 }}>
                           <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">City *</label>
-                            <input
-                              type="text"
-                              value={newAddress.city}
-                              onChange={(e) => setNewAddress((p) => ({ ...p, city: e.target.value }))}
-                              className="input-field text-sm"
-                              placeholder="Mumbai"
-                            />
+                            <label className="nm-label">City *</label>
+                            <input value={newAddress.city} onChange={(e) => setNewAddress((p) => ({ ...p, city: e.target.value }))} className="nm-input" placeholder="Mumbai" />
                           </div>
                           <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Pincode *</label>
-                            <input
-                              type="text"
-                              value={newAddress.pincode}
-                              onChange={(e) => setNewAddress((p) => ({ ...p, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
-                              className="input-field text-sm"
-                              placeholder="400001"
-                              inputMode="numeric"
-                            />
+                            <label className="nm-label">Pincode *</label>
+                            <input value={newAddress.pincode} onChange={(e) => setNewAddress((p) => ({ ...p, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }))} className="nm-input" placeholder="400001" inputMode="numeric" />
                           </div>
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">State *</label>
-                          <select
-                            value={newAddress.state}
-                            onChange={(e) => setNewAddress((p) => ({ ...p, state: e.target.value }))}
-                            className="input-field text-sm"
-                          >
+                          <label className="nm-label">State *</label>
+                          <select value={newAddress.state} onChange={(e) => setNewAddress((p) => ({ ...p, state: e.target.value }))} className="nm-select">
                             <option value="">Select state</option>
-                            {INDIAN_STATES.map((s) => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
+                            {INDIAN_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
                           </select>
                         </div>
-                        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={newAddress.save_for_future}
-                            onChange={(e) => setNewAddress((p) => ({ ...p, save_for_future: e.target.checked }))}
-                            className="accent-indigo-600"
-                          />
+                        <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 13, color: 'var(--nm-muted)' }}>
+                          <input type="checkbox" checked={newAddress.save_for_future} onChange={(e) => setNewAddress((p) => ({ ...p, save_for_future: e.target.checked }))} style={{ accentColor: 'var(--nm-green)' }} />
                           Save address for future orders
                         </label>
                       </div>
@@ -580,104 +404,70 @@ export default function CheckoutPage() {
                 )}
               </div>
 
-              {/* Section B: Freight Options */}
+              {/* Section 2: Freight */}
               {(selectedAddressId || showNewAddressForm) && (
-                <div className="card p-5">
-                  <h2 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <Truck className="w-4 h-4 text-primary-600" />
-                    Freight Options
-                  </h2>
-                  <div className="space-y-3">
-                    {[
-                      {
-                        value: 'self_ship' as FreightType,
-                        label: 'Seller Self-Ship',
-                        subtitle: 'Seller arranges delivery',
-                        price: 'Free',
-                        eta: '3–7 business days',
-                      },
-                      {
-                        value: 'platform_logistics' as FreightType,
-                        label: 'Platform Logistics — Delhivery',
-                        subtitle: 'NirmalMandi arranges pickup & delivery',
-                        price: loadingFreight
-                          ? 'Calculating...'
-                          : freightEstimate !== null && freightType === 'platform_logistics'
-                            ? `₹${freightEstimate.toLocaleString('en-IN')}`
-                            : 'Select to see estimate',
-                        eta: '2–4 business days',
-                      },
-                      {
-                        value: 'buyer_pickup' as FreightType,
-                        label: 'Buyer Pickup',
-                        subtitle: 'You coordinate pickup directly with seller',
-                        price: 'Free',
-                        eta: 'Coordinate with seller',
-                      },
-                    ].map((opt) => (
-                      <label
-                        key={opt.value}
-                        className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${
-                          freightType === opt.value
-                            ? 'border-primary-500 bg-primary-50'
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="freight"
-                          value={opt.value}
-                          checked={freightType === opt.value}
-                          onChange={() => setFreightType(opt.value)}
-                          className="mt-0.5 accent-indigo-600"
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium text-gray-900">{opt.label}</span>
-                            <span className={`text-sm font-semibold ${opt.price === 'Free' ? 'text-green-600' : 'text-gray-800'}`}>
-                              {opt.price}
-                            </span>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--nm-faint)', margin: '0 0 12px' }}>Freight option</p>
+                  <div className="flex flex-col" style={{ gap: 10 }}>
+                    {FREIGHT_OPTS.map((opt) => {
+                      const sel = freightType === opt.value;
+                      const Icon = opt.icon;
+                      const cost = opt.value === 'platform_logistics'
+                        ? (loadingFreight ? 'Calculating…' : freightEstimate !== null && sel ? inr(freightEstimate) : 'See estimate')
+                        : 'Free';
+                      return (
+                        <label key={opt.value} className="nm-card flex items-start gap-3 cursor-pointer" style={{
+                          padding: 16,
+                          border: sel ? '1.5px solid var(--nm-green)' : '1px solid var(--nm-line)',
+                          background: sel ? 'var(--nm-green-soft)' : 'var(--nm-card)',
+                        }}>
+                          <input type="radio" name="freight" checked={sel} onChange={() => setFreightType(opt.value)} style={{ marginTop: 2, accentColor: 'var(--nm-green)' }} />
+                          <Icon size={18} style={{ color: 'var(--nm-green)', flexShrink: 0, marginTop: 1 }} />
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <span className="disp" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--nm-ink)' }}>{opt.label}</span>
+                              <span className="num" style={{ fontSize: 13.5, fontWeight: 700, color: cost === 'Free' ? 'var(--nm-green)' : 'var(--nm-ink)' }}>{cost}</span>
+                            </div>
+                            <p style={{ fontSize: 12, color: 'var(--nm-muted)', margin: '3px 0 0' }}>{opt.subtitle}</p>
                           </div>
-                          <p className="text-xs text-gray-500 mt-0.5">{opt.subtitle}</p>
-                          <p className="text-xs text-gray-400 mt-0.5">Est. {opt.eta}</p>
-                        </div>
-                      </label>
-                    ))}
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
-              {/* Section C: Payment */}
-              <div className="card p-5">
-                <button
-                  onClick={handlePay}
-                  disabled={placing || !freightType || loadingFreight || (freightType === 'platform_logistics' && freightEstimate === null)}
-                  className="w-full py-3.5 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-base rounded-xl transition-colors flex items-center justify-center gap-2"
-                >
-                  {placing ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      Processing...
-                    </>
-                  ) : (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      Pay ₹{total.toLocaleString('en-IN', { maximumFractionDigits: 2 })} Securely
-                    </>
-                  )}
-                </button>
-                <div className="flex items-center justify-center gap-2 mt-3 text-xs text-gray-400">
-                  <CheckCircle className="w-3.5 h-3.5 text-green-500" />
-                  <span>UPI · Cards · NEFT · RTGS via Razorpay</span>
+              {/* Tier gate */}
+              {total >= 1_00_000 && (
+                <div className="flex items-start gap-3" style={{ background: 'var(--nm-gold-soft)', borderRadius: 12, padding: 16 }}>
+                  <Lock size={18} style={{ color: 'var(--nm-gold-ink)', flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <p className="disp" style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--nm-gold-ink)', margin: 0 }}>High-value order verification</p>
+                    <p style={{ fontSize: 12.5, color: 'var(--nm-gold-ink)', margin: '3px 0 0', lineHeight: 1.45 }}>
+                      Orders above {inr(total >= 10_00_000 ? 10_00_000 : 1_00_000)} require a quick identity check before payment.
+                    </p>
+                  </div>
                 </div>
-                <p className="text-center text-xs text-gray-400 mt-2">
-                  256-bit SSL encrypted · PCI-DSS compliant
-                </p>
-              </div>
+              )}
+
+              {/* Pay button */}
+              <button onClick={handlePay} disabled={payDisabled} className="nm-btn-primary" style={{ width: '100%', padding: '15px 24px', fontSize: 15.5, opacity: payDisabled ? 0.55 : 1, cursor: payDisabled ? 'not-allowed' : 'pointer' }}>
+                {placing ? <><Loader2 size={18} className="animate-spin" /> Processing…</> : <><Lock size={16} /> Pay {inr(total)} securely</>}
+              </button>
+              <p className="text-center" style={{ fontSize: 11.5, color: 'var(--nm-faint)', margin: '-12px 0 0' }}>UPI · Cards · NEFT · RTGS via Razorpay · 256-bit SSL</p>
             </div>
           </div>
         </main>
       </div>
     </>
+  );
+}
+
+function LineItem({ label, value, valueNode }: { label: string; value?: string; valueNode?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between" style={{ padding: '9px 0', borderBottom: '1px solid var(--nm-line-soft)' }}>
+      <span style={{ fontSize: 13, color: 'var(--nm-muted)' }}>{label}</span>
+      <span className="num" style={{ fontSize: 13.5, color: 'var(--nm-ink)' }}>{valueNode ?? value}</span>
+    </div>
   );
 }

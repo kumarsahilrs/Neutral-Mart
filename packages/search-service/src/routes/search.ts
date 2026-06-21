@@ -177,6 +177,78 @@ searchRouter.get('/autocomplete', async (req: Request, res: Response) => {
   }
 });
 
+// ── GET /search/suggest — AI-powered query suggestions ──────────
+// Calls the ai-service to expand a raw query into 5 richer search terms,
+// then runs each through ES autocomplete and returns deduplicated results.
+searchRouter.get('/suggest', async (req: Request, res: Response) => {
+  const q = String(req.query.q ?? '').trim();
+  if (!q) {
+    res.json(successResponse({ suggestions: [] }));
+    return;
+  }
+
+  const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+  try {
+    // Ask the AI service to expand the query
+    let expandedTerms: string[] = [q];
+    try {
+      const aiRes = await fetch(`${AI_SERVICE_URL}/search/expand`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (aiRes.ok) {
+        const aiJson = await aiRes.json() as { terms?: string[] };
+        if (Array.isArray(aiJson.terms) && aiJson.terms.length) {
+          expandedTerms = aiJson.terms.slice(0, 5);
+        }
+      }
+    } catch {
+      // AI service unavailable — fall back to raw query only
+    }
+
+    // Run each term through ES prefix search, collect unique results
+    const seen = new Set<string>();
+    const suggestions: unknown[] = [];
+
+    await Promise.all(
+      expandedTerms.map(async (term) => {
+        try {
+          const esResponse = await getEs().search({
+            index: LISTINGS_INDEX,
+            size: 5,
+            body: {
+              query: {
+                bool: {
+                  must: { match_phrase_prefix: { title: { query: term, max_expansions: 10 } } },
+                  filter: [{ term: { status: 'live' } }],
+                },
+              },
+              _source: ['id', 'title', 'asking_price', 'images', 'condition_grade'],
+            },
+          });
+          for (const hit of esResponse.hits.hits) {
+            const src = hit._source as { id?: string };
+            if (src?.id && !seen.has(src.id)) {
+              seen.add(src.id);
+              suggestions.push(src);
+            }
+          }
+        } catch {
+          // ignore per-term failures
+        }
+      })
+    );
+
+    res.json(successResponse({ suggestions: suggestions.slice(0, 10) }));
+  } catch (err) {
+    logger.error('Suggest error', { error: (err as Error).message });
+    res.status(500).json(errorResponse('Suggest failed', 'SEARCH_ERROR'));
+  }
+});
+
 // ── GET /search/deal-feed ────────────────────────────────────────
 searchRouter.get('/deal-feed', async (req: Request, res: Response) => {
   const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10));

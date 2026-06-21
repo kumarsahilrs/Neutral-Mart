@@ -1,0 +1,86 @@
+{
+  "_comment": "NirmalMandi ECS Fargate Task Definition Template — Sprint 16",
+  "_usage": "Replace SERVICE_NAME, SERVICE_PORT, ECR_REGISTRY, DD_API_KEY before registering.",
+
+  "family": "nm-SERVICE_NAME",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/nmTaskRole",
+
+  "containerDefinitions": [
+    {
+      "name": "nm-SERVICE_NAME",
+      "image": "ECR_REGISTRY/nm-SERVICE_NAME:latest",
+      "portMappings": [
+        { "containerPort": SERVICE_PORT, "protocol": "tcp" }
+      ],
+      "essential": true,
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "DD_AGENT_HOST", "value": "localhost" },
+        { "name": "DD_TRACE_AGENT_PORT", "value": "8126" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL",           "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:nm-prod/DATABASE_URL" },
+        { "name": "REDIS_URL",              "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:nm-prod/REDIS_URL" },
+        { "name": "JWT_PRIVATE_KEY",        "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:nm-prod/JWT_PRIVATE_KEY" },
+        { "name": "JWT_PUBLIC_KEY",         "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:nm-prod/JWT_PUBLIC_KEY" },
+        { "name": "RAZORPAY_KEY_ID",        "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:nm-prod/RAZORPAY_KEY_ID" },
+        { "name": "RAZORPAY_KEY_SECRET",    "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:nm-prod/RAZORPAY_KEY_SECRET" },
+        { "name": "INTERNAL_SERVICE_SECRET","valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:nm-prod/INTERNAL_SERVICE_SECRET" },
+        { "name": "OPENAI_API_KEY",         "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:nm-prod/OPENAI_API_KEY" },
+        { "name": "TWILIO_AUTH_TOKEN",      "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:nm-prod/TWILIO_AUTH_TOKEN" },
+        { "name": "FIREBASE_PRIVATE_KEY",   "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:nm-prod/FIREBASE_PRIVATE_KEY" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/nm-SERVICE_NAME",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:SERVICE_PORT/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    },
+    {
+      "_comment": "Datadog Agent sidecar — collects APM traces, metrics, logs",
+      "name": "datadog-agent",
+      "image": "public.ecr.aws/datadog/agent:latest",
+      "essential": false,
+      "environment": [
+        { "name": "DD_SITE",                "value": "datadoghq.com" },
+        { "name": "DD_APM_ENABLED",         "value": "true" },
+        { "name": "DD_APM_NON_LOCAL_TRAFFIC","value": "true" },
+        { "name": "DD_LOGS_ENABLED",        "value": "true" },
+        { "name": "DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL", "value": "true" },
+        { "name": "ECS_FARGATE",            "value": "true" },
+        { "name": "DD_SERVICE",             "value": "nm-SERVICE_NAME" },
+        { "name": "DD_ENV",                 "value": "production" }
+      ],
+      "secrets": [
+        { "name": "DD_API_KEY", "valueFrom": "arn:aws:secretsmanager:ap-south-1:ACCOUNT_ID:secret:nm-prod/DD_API_KEY" }
+      ],
+      "portMappings": [
+        { "containerPort": 8126, "protocol": "tcp" },
+        { "containerPort": 8125, "protocol": "udp" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/nm-datadog-agent",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

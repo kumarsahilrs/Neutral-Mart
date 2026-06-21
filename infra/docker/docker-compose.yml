@@ -134,6 +134,54 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
 
+  logistics-service:
+    build:
+      context: ../..
+      dockerfile: packages/logistics-service/Dockerfile
+    container_name: nm_logistics
+    ports:
+      - '3007:3007'
+    env_file: ../../.env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  analytics-service:
+    build:
+      context: ../..
+      dockerfile: packages/analytics-service/Dockerfile
+    container_name: nm_analytics
+    ports:
+      - '3008:3008'
+    env_file: ../../.env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  dispute-service:
+    build:
+      context: ../..
+      dockerfile: packages/dispute-service/Dockerfile
+    container_name: nm_dispute
+    ports:
+      - '3009:3009'
+    env_file: ../../.env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  invoice-service:
+    build:
+      context: ../..
+      dockerfile: packages/invoice-service/Dockerfile
+    container_name: nm_invoice
+    ports:
+      - '3011:3011'
+    env_file: ../../.env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
   admin:
     build:
       context: ../..

@@ -29,6 +29,13 @@ module.exports = {
       { source: '/api/user/addresses/:path*',    destination: `${AUTH}/profile/addresses/:path*` },
       { source: '/api/referral/stats',           destination: `${AUTH}/profile/referral` },
       { source: '/api/referral/:path*',          destination: `${AUTH}/profile/referral/:path*` },
+      // Email OTP + one-time phone verification
+      { source: '/api/auth/email/:path*',        destination: `${AUTH}/auth/email/:path*` },
+      { source: '/api/auth/verify-phone/:path*', destination: `${AUTH}/auth/verify-phone/:path*` },
+      // Sprint 16 — DPDP consent + DocuSign
+      { source: '/api/consent/:path*',           destination: `${AUTH}/consent/:path*` },
+      { source: '/api/consent',                  destination: `${AUTH}/consent` },
+      { source: '/api/esign/:path*',             destination: `${AUTH}/esign/:path*` },
 
       // ── Inventory service ────────────────────────────────────────────────
       { source: '/api/inventory/listings/:path*',  destination: `${INVENTORY}/listings/:path*` },
@@ -40,6 +47,11 @@ module.exports = {
       { source: '/api/seller/listings',            destination: `${INVENTORY}/seller/listings` },
       { source: '/api/buyer/watchlist',            destination: `${INVENTORY}/buyer/watchlist` },
       { source: '/api/buyer/:path*',               destination: `${INVENTORY}/buyer/:path*` },
+      // Sprint 15 — Storefront
+      { source: '/api/storefront/:path*',          destination: `${INVENTORY}/storefront/:path*` },
+      { source: '/api/storefront',                 destination: `${INVENTORY}/storefront` },
+      // Sprint 13 — Compliance
+      { source: '/api/listings/:path*',            destination: `${INVENTORY}/listings/:path*` },
 
       // ── Order service ────────────────────────────────────────────────────
       { source: '/api/orders/:path*',              destination: `${ORDER}/orders/:path*` },
@@ -48,6 +60,9 @@ module.exports = {
       { source: '/api/cart',                       destination: `${ORDER}/cart` },
       { source: '/api/negotiations/:path*',        destination: `${ORDER}/negotiations/:path*` },
       { source: '/api/negotiations',               destination: `${ORDER}/negotiations` },
+      // Sprint 13 — RFQ + voice messages
+      { source: '/api/rfq/:path*',                 destination: `${ORDER}/rfq/:path*` },
+      { source: '/api/rfq',                        destination: `${ORDER}/rfq` },
 
       // ── Search service ───────────────────────────────────────────────────
       { source: '/api/search/:path*',              destination: `${SEARCH}/search/:path*` },

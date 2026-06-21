@@ -32,12 +32,29 @@ PLATFORM_GSTIN=27AABCA1234A1Z5
 INTERNAL_SERVICE_SECRET=<random 64-char hex>
 DELHIVERY_TOKEN=...
 KARZA_API_KEY=...
+OPENAI_API_KEY=sk-proj-...
+DD_API_KEY=...
+DD_SITE=datadoghq.com
+DOCUSIGN_INTEGRATION_KEY=...
+DOCUSIGN_USER_ID=...
+DOCUSIGN_ACCOUNT_ID=...
+DOCUSIGN_PRIVATE_KEY=<base64-RSA-key>
+DOCUSIGN_TEMPLATE_ID=...
+GOOGLE_TTS_API_KEY=...
+PLATFORM_GSTIN=27AABCA1234A1Z5
 ```
 
 ## Step 1 — Database
 ```bash
 # Run migration on RDS
 psql $DATABASE_URL < infra/migrations/001_initial_schema.sql
+psql $DATABASE_URL < infra/migrations/002_missing_columns.sql
+psql $DATABASE_URL < infra/migrations/003_watchlist_and_compare.sql
+psql $DATABASE_URL < infra/migrations/004_dispute_schema_fix.sql
+psql $DATABASE_URL < infra/migrations/005_sprint13_rfq_voice_compliance.sql
+psql $DATABASE_URL < infra/migrations/006_sprint14_bi_engines.sql
+psql $DATABASE_URL < infra/migrations/007_sprint15_storefront.sql
+psql $DATABASE_URL < infra/migrations/008_sprint16_compliance_bnpl.sql
 
 # Verify sectors seeded
 psql $DATABASE_URL -c "SELECT slug, commission_rate FROM sectors;"

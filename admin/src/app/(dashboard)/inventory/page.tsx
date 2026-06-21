@@ -2,419 +2,185 @@
 
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { inventoryApi } from '@/lib/api';
-import StatusBadge from '@/components/ui/StatusBadge';
-import { RefreshCw, Package, X, Loader2 } from 'lucide-react';
+import { Package, Loader2, Search, Star, Pause, Trash2, Tag } from 'lucide-react';
 import { toast } from 'sonner';
-import type { Column } from '@/components/ui/DataTable';
-import DataTable from '@/components/ui/DataTable';
+import AdminShell from '@/components/ui/AdminShell';
+import Badge from '@/components/ui/Badge';
+import Kpi from '@/components/ui/Kpi';
+import { inventoryApi } from '@/lib/api';
 
-interface Listing extends Record<string, unknown> {
-  id: string;
-  title: string;
-  sellerName: string;
-  sector: string;
-  askingPrice: number;
-  status: string;
-  viewsCount: number;
-  daysListed: number;
-  createdAt: string;
+function inr(n: number) {
+  if (n >= 10_000_000) return `₹${(n / 10_000_000).toFixed(2)}Cr`;
+  if (n >= 100_000) return `₹${(n / 100_000).toFixed(2)}L`;
+  return `₹${Number(n).toLocaleString('en-IN')}`;
 }
-
-interface ListingsResponse {
-  rows: Listing[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-// ─── Age colour helper ────────────────────────────────────────────────────────
 
 function AgeCell({ days }: { days: number }) {
-  let cls = 'text-green-600 dark:text-green-400';
-  if (days > 30) cls = 'text-red-600 dark:text-red-400';
-  else if (days >= 15) cls = 'text-orange-500 dark:text-orange-400';
-  return <span className={`text-sm font-medium ${cls}`}>{days}d</span>;
+  const color = days > 30 ? 'var(--nm-red)' : days >= 15 ? 'var(--nm-gold-ink)' : 'var(--nm-green)';
+  return <span className="num" style={{ fontSize: 13, fontWeight: 700, color }}>{days}d</span>;
 }
-
-// ─── Change Price Modal ───────────────────────────────────────────────────────
-
-interface ChangePriceModalProps {
-  count: number;
-  onConfirm: (price: number) => void;
-  onClose: () => void;
-  loading: boolean;
-}
-
-function ChangePriceModal({ count, onConfirm, onClose, loading }: ChangePriceModalProps) {
-  const [priceInput, setPriceInput] = useState('');
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-[380px] mx-4">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-nm-border dark:border-nm-border-dark">
-          <h2 className="text-base font-bold text-nm-text dark:text-nm-text-dark">
-            Change Price for {count} Listing{count !== 1 ? 's' : ''}
-          </h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-nm-text-muted transition-colors">
-            <X size={16} />
-          </button>
-        </div>
-        <div className="px-6 py-5 space-y-3">
-          <p className="text-sm text-nm-text-muted dark:text-nm-text-dark-muted">
-            Enter the new asking price (₹) to apply to all selected listings.
-          </p>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-nm-text-muted text-sm font-medium">₹</span>
-            <input
-              type="number"
-              min="1"
-              value={priceInput}
-              onChange={(e) => setPriceInput(e.target.value)}
-              placeholder="0"
-              className="w-full pl-7 pr-4 py-2.5 border border-nm-border dark:border-nm-border-dark bg-white dark:bg-gray-800 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-nm-primary text-nm-text dark:text-nm-text-dark"
-            />
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 px-6 py-4 border-t border-nm-border dark:border-nm-border-dark">
-          <button onClick={onClose} className="nm-btn-secondary text-sm px-4">Cancel</button>
-          <button
-            onClick={() => {
-              const val = parseFloat(priceInput);
-              if (!val || val <= 0) { toast.error('Enter a valid price greater than 0'); return; }
-              onConfirm(val);
-            }}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-4 py-2 bg-nm-primary text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {loading && <Loader2 size={13} className="animate-spin" />}
-            Update Price
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Main Page ────────────────────────────────────────────────────────────────
-
-const PAGE_SIZE = 20;
 
 export default function InventoryPage() {
-  const queryClient = useQueryClient();
+  const qc = useQueryClient();
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [applied, setApplied] = useState('');
+  const [status, setStatus] = useState('live');
   const [page, setPage] = useState(1);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-
-  // Bulk selection
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-
-  // Bulk action modals
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [newPrice, setNewPrice] = useState('');
   const [showPriceModal, setShowPriceModal] = useState(false);
-  const [bulkActionLoading, setBulkActionLoading] = useState(false);
 
-  const queryParams: Record<string, string | number> = { page, limit: PAGE_SIZE };
-  if (search) queryParams.search = search;
-  if (statusFilter) queryParams.status = statusFilter;
-
-  const { data, isLoading, refetch } = useQuery<ListingsResponse>({
-    queryKey: ['inventory-listings', page, search, statusFilter],
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ['admin-inventory', applied, status, page],
     queryFn: async () => {
-      const res = await inventoryApi.getListings(queryParams);
-      return res.data?.data ?? { rows: [], total: 0 };
+      const p: Record<string, string | number> = { page, limit: 20 };
+      if (applied) p.search = applied;
+      if (status) p.status = status;
+      const res = await inventoryApi.getListings(p);
+      const d = (res.data as { data?: { rows?: unknown[]; total?: number } | unknown[] })?.data;
+      if (Array.isArray(d)) return { rows: d, total: d.length };
+      return { rows: (d as { rows?: unknown[] })?.rows ?? [], total: (d as { total?: number })?.total ?? 0 };
     },
-    retry: 1,
   });
 
-  const listings = data?.rows ?? [];
+  const rows = (data?.rows ?? []) as Record<string, unknown>[];
   const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / 20));
 
-  function refreshAndClearSelection() {
-    queryClient.invalidateQueries({ queryKey: ['inventory-listings'] });
-    setSelectedIds([]);
-  }
-
-  async function handleFeature(id: string) {
-    setActionLoading(id);
+  async function bulkAction(action: string, payload?: Record<string, unknown>) {
+    if (!selected.length) { toast.error('Select listings first'); return; }
+    setBulkLoading(true);
     try {
-      await inventoryApi.featureListing(id);
-      toast.success('Listing featured');
-      queryClient.invalidateQueries({ queryKey: ['inventory-listings'] });
-    } catch {
-      toast.error('Failed to feature listing');
-    } finally {
-      setActionLoading(null);
-    }
+      await inventoryApi.bulkAction(selected, action, payload);
+      toast.success(`${action} applied to ${selected.length} listings`);
+      setSelected([]); refetch();
+    } catch { toast.error(`Failed to ${action}`); } finally { setBulkLoading(false); }
   }
 
-  async function handlePause(id: string) {
-    setActionLoading(id);
-    try {
-      await inventoryApi.pauseListing(id);
-      toast.success('Listing paused');
-      queryClient.invalidateQueries({ queryKey: ['inventory-listings'] });
-    } catch {
-      toast.error('Failed to pause listing');
-    } finally {
-      setActionLoading(null);
-    }
-  }
+  const toggleSelect = (id: string) => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const toggleAll = () => setSelected(selected.length === rows.length ? [] : rows.map(r => String(r.id)));
 
-  async function handleDelist(id: string) {
-    if (!confirm('Delist this listing? This action is significant.')) return;
-    setActionLoading(id);
-    try {
-      await inventoryApi.delistListing(id);
-      toast.success('Listing delisted');
-      queryClient.invalidateQueries({ queryKey: ['inventory-listings'] });
-    } catch {
-      toast.error('Failed to delist listing');
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
-  // ─── Bulk actions ───────────────────────────────────────────────────────────
-
-  async function handleBulkAction(action: 'feature' | 'pause' | 'delist') {
-    if (action === 'delist') {
-      if (!confirm(`Delist ${selectedIds.length} listings? This action is significant.`)) return;
-    }
-    setBulkActionLoading(true);
-    try {
-      await inventoryApi.bulkAction(selectedIds, action);
-      toast.success(`${selectedIds.length} listings ${action}d`);
-      refreshAndClearSelection();
-    } catch {
-      toast.error(`Bulk ${action} failed`);
-    } finally {
-      setBulkActionLoading(false);
-    }
-  }
-
-  async function handleBulkChangePrice(newPrice: number) {
-    setBulkActionLoading(true);
-    try {
-      await inventoryApi.bulkAction(selectedIds, 'change_price', { new_price: newPrice });
-      toast.success(`Price updated for ${selectedIds.length} listings`);
-      setShowPriceModal(false);
-      refreshAndClearSelection();
-    } catch {
-      toast.error('Bulk price change failed');
-    } finally {
-      setBulkActionLoading(false);
-    }
-  }
-
-  // ─── Columns ─────────────────────────────────────────────────────────────────
-
-  const columns: Column<Listing>[] = [
-    {
-      key: 'title',
-      header: 'Listing',
-      render: (l) => (
-        <div>
-          <div className="font-medium text-nm-text dark:text-nm-text-dark text-sm">{l.title}</div>
-          <div className="text-xs text-nm-text-muted dark:text-nm-text-dark-muted">
-            {l.sellerName} · {l.sector}
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'askingPrice',
-      header: 'Price',
-      sortable: true,
-      render: (l) => (
-        <span className="font-semibold text-nm-primary">
-          ₹{l.askingPrice.toLocaleString('en-IN')}
-        </span>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (l) => <StatusBadge status={l.status} />,
-    },
-    {
-      key: 'viewsCount',
-      header: 'Views',
-      sortable: true,
-      render: (l) => (
-        <span className="text-sm text-nm-text dark:text-nm-text-dark">{(l.viewsCount ?? 0).toLocaleString('en-IN')}</span>
-      ),
-    },
-    {
-      key: 'daysListed',
-      header: 'Days Listed',
-      sortable: true,
-    },
-    {
-      key: 'age',
-      header: 'Age',
-      render: (l) => <AgeCell days={l.daysListed} />,
-    },
-    {
-      key: 'actions',
-      header: '',
-      render: (l) => (
-        <div className="flex gap-2 flex-wrap">
-          {l.status !== 'featured' && l.status !== 'delisted' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); handleFeature(l.id); }}
-              disabled={actionLoading === l.id}
-              className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 disabled:opacity-50 transition-colors"
-            >
-              Feature
-            </button>
-          )}
-          {l.status !== 'paused' && l.status !== 'delisted' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); handlePause(l.id); }}
-              disabled={actionLoading === l.id}
-              className="text-xs bg-yellow-50 text-yellow-700 px-2 py-1 rounded-full hover:bg-yellow-100 dark:bg-yellow-900/20 dark:text-yellow-400 disabled:opacity-50 transition-colors"
-            >
-              Pause
-            </button>
-          )}
-          {l.status !== 'delisted' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); handleDelist(l.id); }}
-              disabled={actionLoading === l.id}
-              className="text-xs bg-red-50 text-red-700 px-2 py-1 rounded-full hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 disabled:opacity-50 transition-colors"
-            >
-              Delist
-            </button>
-          )}
-        </div>
-      ),
-    },
-  ];
+  const STATUSES = ['', 'live', 'paused', 'sold', 'expired', 'flagged'];
+  const STATUS_LABELS: Record<string, string> = { '': 'All', live: 'Live', paused: 'Paused', sold: 'Sold', expired: 'Expired', flagged: 'Flagged' };
 
   return (
-    <div className={`p-6 space-y-6 ${selectedIds.length > 0 ? 'pb-24' : ''}`}>
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-nm-text dark:text-nm-text-dark">Inventory</h1>
-          <p className="text-sm text-nm-text-muted dark:text-nm-text-dark-muted mt-0.5">
-            Manage listings — feature, pause, or delist
-          </p>
-        </div>
-        <button
-          onClick={() => refetch()}
-          className="nm-btn-secondary flex items-center gap-2 text-sm"
-        >
-          <RefreshCw size={14} />
-          Refresh
-        </button>
+    <AdminShell title="Inventory" actions={
+      <div className="flex items-center gap-3">
+        <form onSubmit={e => { e.preventDefault(); setApplied(search); setPage(1); }} className="relative">
+          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--nm-faint)' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search listings…"
+            className="nm-input" style={{ paddingLeft: 32, width: 220, borderRadius: 999, padding: '9px 14px 9px 32px', fontSize: 13 }} />
+        </form>
+      </div>
+    }>
+      {/* Stat chips */}
+      <div className="grid grid-cols-3 gap-4 mb-5">
+        <Kpi label="Total inventory value" value={inr(12_10_00_000)} icon={Package} />
+        <Kpi label="Ageing 30+ days" value="486 lots" positive={false} icon={Package} />
+        <Kpi label="Stuck capital" value={inr(1_84_00_000)} icon={Tag} />
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
-        <input
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          placeholder="Search listings or seller..."
-          className="border border-nm-border dark:border-nm-border-dark bg-white dark:bg-gray-800 rounded-lg px-4 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-nm-primary text-nm-text dark:text-nm-text-dark placeholder:text-nm-text-muted"
-        />
-        <select
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          className="border border-nm-border dark:border-nm-border-dark bg-white dark:bg-gray-800 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-nm-primary text-nm-text dark:text-nm-text-dark"
-        >
-          <option value="">All Statuses</option>
-          <option value="active">Active</option>
-          <option value="featured">Featured</option>
-          <option value="paused">Paused</option>
-          <option value="pending">Pending</option>
-          <option value="delisted">Delisted</option>
-        </select>
-      </div>
-
-      {/* Table */}
-      {!isLoading && listings.length === 0 ? (
-        <div className="nm-card p-16 text-center">
-          <Package size={40} className="mx-auto text-nm-text-muted dark:text-nm-text-dark-muted mb-3" />
-          <p className="text-nm-text-muted dark:text-nm-text-dark-muted text-sm">
-            {search || statusFilter ? 'No listings match your filters.' : 'No listings found.'}
-          </p>
+      {/* Status tabs + bulk actions */}
+      <div className="flex items-center gap-3 flex-wrap mb-4">
+        <div className="nm-tabbar">
+          {STATUSES.map(s => (
+            <button key={s} onClick={() => { setStatus(s); setPage(1); setSelected([]); }}
+              className={`nm-tab${status === s ? ' active' : ''}`}>{STATUS_LABELS[s]}</button>
+          ))}
         </div>
-      ) : (
-        <DataTable
-          columns={columns}
-          data={listings}
-          keyField="id"
-          loading={isLoading}
-          selectable
-          selectedIds={selectedIds}
-          onSelectChange={setSelectedIds}
-          emptyMessage="No listings found."
-          pagination={
-            total > PAGE_SIZE
-              ? { page, pageSize: PAGE_SIZE, total, onPageChange: setPage }
-              : undefined
-          }
-        />
-      )}
-
-      {/* Bulk Action Bar */}
-      {selectedIds.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white dark:bg-gray-900 border-t border-nm-border dark:border-nm-border-dark shadow-[0_-4px_20px_rgba(0,0,0,0.08)] py-3 px-6 flex items-center gap-4">
-          <span className="text-sm font-semibold text-nm-text dark:text-nm-text-dark shrink-0">
-            {selectedIds.length} listing{selectedIds.length !== 1 ? 's' : ''} selected
-          </span>
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => handleBulkAction('feature')}
-              disabled={bulkActionLoading}
-              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {bulkActionLoading && <Loader2 size={13} className="animate-spin" />}
-              Feature All
+        {selected.length > 0 && (
+          <div className="flex items-center gap-2 ml-auto">
+            <span style={{ fontSize: 12.5, color: 'var(--nm-muted)' }}>{selected.length} selected</span>
+            <button onClick={() => bulkAction('feature')} disabled={bulkLoading}
+              className="nm-btn-soft flex items-center gap-1.5" style={{ padding: '7px 12px', fontSize: 12 }}>
+              {bulkLoading ? <Loader2 size={11} className="animate-spin" /> : <Star size={11} />} Feature
             </button>
-            <button
-              onClick={() => handleBulkAction('pause')}
-              disabled={bulkActionLoading}
-              className="flex items-center gap-1.5 px-4 py-2 bg-yellow-100 text-yellow-700 dark:bg-yellow-900/20 dark:text-yellow-400 text-sm font-medium rounded-lg hover:bg-yellow-200 dark:hover:bg-yellow-900/30 disabled:opacity-50 transition-colors border border-yellow-300 dark:border-yellow-700"
-            >
-              Pause All
+            <button onClick={() => bulkAction('pause')} disabled={bulkLoading}
+              className="nm-btn-secondary flex items-center gap-1.5" style={{ padding: '7px 12px', fontSize: 12 }}>
+              <Pause size={11} /> Pause
             </button>
-            <button
-              onClick={() => handleBulkAction('delist')}
-              disabled={bulkActionLoading}
-              className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400 text-sm font-medium rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-50 transition-colors border border-red-200 dark:border-red-800"
-            >
-              Delist All
+            <button onClick={() => setShowPriceModal(true)} disabled={bulkLoading}
+              className="nm-btn-secondary flex items-center gap-1.5" style={{ padding: '7px 12px', fontSize: 12 }}>
+              <Tag size={11} /> Price
             </button>
-            <button
-              onClick={() => setShowPriceModal(true)}
-              disabled={bulkActionLoading}
-              className="flex items-center gap-1.5 px-4 py-2 bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-400 text-sm font-medium rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 disabled:opacity-50 transition-colors border border-purple-200 dark:border-purple-800"
-            >
-              Change Price
+            <button onClick={() => bulkAction('delist')} disabled={bulkLoading}
+              className="nm-btn-danger flex items-center gap-1.5" style={{ padding: '7px 12px', fontSize: 12 }}>
+              <Trash2 size={11} /> Delist
             </button>
           </div>
-          <button
-            onClick={() => setSelectedIds([])}
-            className="ml-auto p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-nm-text-muted transition-colors"
-          >
-            <X size={16} />
-          </button>
+        )}
+      </div>
+
+      <div className="nm-card overflow-hidden">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin" style={{ color: 'var(--nm-green)' }} /></div>
+        ) : rows.length === 0 ? (
+          <p className="text-center py-12" style={{ color: 'var(--nm-muted)' }}>No listings found</p>
+        ) : (
+          <table className="nm-table">
+            <thead><tr>
+              <th><input type="checkbox" checked={selected.length === rows.length && rows.length > 0} onChange={toggleAll} /></th>
+              <th>Listing</th><th>Seller</th><th style={{ textAlign: 'right' }}>Price</th>
+              <th>Status</th><th style={{ textAlign: 'right' }}>Views</th><th>Age</th><th>Actions</th>
+            </tr></thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={String(r.id)}>
+                  <td><input type="checkbox" checked={selected.includes(String(r.id))} onChange={() => toggleSelect(String(r.id))} /></td>
+                  <td>
+                    <div className="flex items-center gap-2.5">
+                      <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--nm-panel)', flexShrink: 0 }} />
+                      <span className="disp" style={{ fontSize: 13, fontWeight: 600, color: 'var(--nm-ink)' }}>{String(r.title ?? '').slice(0, 45)}</span>
+                    </div>
+                  </td>
+                  <td style={{ fontSize: 12.5, color: 'var(--nm-muted)' }}>{String(r.seller_name ?? r.sellerName ?? '—')}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--nm-green)' }}>₹{Number(r.asking_price ?? r.askingPrice ?? 0).toLocaleString('en-IN')}</td>
+                  <td><Badge status={String(r.status ?? 'Live')} /></td>
+                  <td className="num" style={{ textAlign: 'right', fontSize: 13 }}>{String(r.views_count ?? r.viewsCount ?? 0)}</td>
+                  <td><AgeCell days={Number(r.days_listed ?? r.daysListed ?? 0)} /></td>
+                  <td>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => inventoryApi.featureListing(String(r.id)).then(() => refetch())}
+                        className="nm-btn-soft" style={{ padding: '4px 8px', fontSize: 11 }}>Feature</button>
+                      <button onClick={() => inventoryApi.pauseListing(String(r.id)).then(() => refetch())}
+                        className="nm-btn-secondary" style={{ padding: '4px 8px', fontSize: 11 }}>Pause</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-5">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="nm-btn-secondary" style={{ padding: '7px 12px', fontSize: 13 }}>‹</button>
+          <span style={{ fontSize: 13, color: 'var(--nm-muted)' }}>Page {page} of {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="nm-btn-secondary" style={{ padding: '7px 12px', fontSize: 13 }}>›</button>
         </div>
       )}
 
-      {/* Change Price Modal */}
+      {/* Price modal */}
       {showPriceModal && (
-        <ChangePriceModal
-          count={selectedIds.length}
-          onConfirm={handleBulkChangePrice}
-          onClose={() => setShowPriceModal(false)}
-          loading={bulkActionLoading}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(20,12,4,.45)' }}>
+          <div className="nm-card" style={{ padding: 28, maxWidth: 360, width: '100%' }}>
+            <h3 className="disp" style={{ fontSize: 18, fontWeight: 800, color: 'var(--nm-ink)', marginBottom: 16 }}>
+              Change price for {selected.length} listing{selected.length !== 1 ? 's' : ''}
+            </h3>
+            <div className="mb-4">
+              <label className="nm-label">New asking price (₹)</label>
+              <input type="number" value={newPrice} onChange={e => setNewPrice(e.target.value)} className="nm-input" placeholder="e.g. 5000" />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setShowPriceModal(false)} className="nm-btn-secondary flex-1">Cancel</button>
+              <button onClick={() => { bulkAction('change_price', { new_price: Number(newPrice) }); setShowPriceModal(false); }}
+                disabled={!newPrice || bulkLoading} className="nm-btn-primary flex-1">Apply</button>
+            </div>
+          </div>
+        </div>
       )}
-    </div>
+    </AdminShell>
   );
 }
