@@ -4,14 +4,15 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "prepare": "npx tsc --skipLibCheck",
-    "build": "tsc",
+    "prepare": "tsc --skipLibCheck",
+    "build": "tsc --skipLibCheck",
     "test": "jest --config jest.config.js",
     "test:watch": "jest --watch",
     "migrate": "node dist/db/migrate.js",
     "migrate:create": "node dist/db/migrate-create.js"
   },
   "dependencies": {
+    "typescript": "^5.4.5",
     "pg": "^8.11.5",
     "ioredis": "^5.3.2",
     "jsonwebtoken": "^9.0.2",
