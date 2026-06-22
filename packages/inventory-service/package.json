@@ -1,4 +1,4 @@
-﻿{"name": "@nirmalmandi/inventory-service",
+{"name": "@nirmalmandi/inventory-service",
   "version": "1.0.0",
   "scripts": {
     "dev": "ts-node-dev --transpile-only --respawn src/index.ts",

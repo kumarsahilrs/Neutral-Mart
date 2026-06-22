@@ -117,7 +117,7 @@ export default function BuyerDashboard() {
                   <td style={{ fontFamily: '"Bricolage Grotesque",sans-serif', fontWeight: 700, fontSize: 13 }}>{String(o.order_number ?? o.id?.slice(0, 8))}</td>
                   <td style={{ maxWidth: 200 }}>
                     <span className="disp" style={{ fontSize: 13, fontWeight: 600, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {String((o as Record<string,unknown>).listing_title ?? 'Order')}
+                      {String((o as unknown as Record<string,unknown>).listing_title ?? 'Order')}
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--nm-faint)' }}>{timeAgo(o.created_at ?? '')}</span>
                   </td>

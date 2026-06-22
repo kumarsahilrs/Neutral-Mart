@@ -1,4 +1,4 @@
-﻿{"name": "@nirmalmandi/payment-service",
+{"name": "@nirmalmandi/payment-service",
   "version": "1.0.0",
   "scripts": {
     "dev": "ts-node-dev --transpile-only --respawn src/index.ts",

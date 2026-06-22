@@ -104,7 +104,7 @@ export default function OrdersPage() {
         <div className="flex flex-col gap-3">
           {orders.map(o => {
             const inEscrow = ['paid','confirmed','shipped','in_transit'].includes(o.status ?? '');
-            const img = Array.isArray((o as Record<string,unknown>).images) ? ((o as Record<string,unknown>).images as string[])[0] : null;
+            const img = Array.isArray((o as unknown as Record<string,unknown>).images) ? ((o as unknown as Record<string,unknown>).images as string[])[0] : null;
             return (
               <div key={o.id} onClick={() => router.push(`/orders/${o.id}`)}
                 className="nm-card flex items-center gap-4 cursor-pointer" style={{ padding: '16px 20px' }}
@@ -117,7 +117,7 @@ export default function OrdersPage() {
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <p className="disp" style={{ fontSize: 14, fontWeight: 700, color: 'var(--nm-ink)', margin: '0 0 2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {String((o as Record<string,unknown>).listing_title ?? `Order ${o.order_number ?? o.id?.slice(0,8)}`)}
+                    {String((o as unknown as Record<string,unknown>).listing_title ?? `Order ${o.order_number ?? o.id?.slice(0,8)}`)}
                   </p>
                   <p style={{ fontSize: 12, color: 'var(--nm-muted)', margin: 0 }}>
                     #{o.order_number ?? o.id?.slice(0,8)} · Qty {o.quantity} · ordered {timeAgo(o.created_at ?? '')}
