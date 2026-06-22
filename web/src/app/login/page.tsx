@@ -198,7 +198,7 @@ export default function LoginPage() {
     if (!name.trim() || !userState || !city.trim()) { toast.error('All fields are required'); return; }
     setLoading(true);
     try {
-      const res = await authApi.registerBuyer({ phone: identifier, name: name.trim(), state: userState, city: city.trim(), otp_verified_phone: identifier });
+      const res = await authApi.registerBuyer({ phone: identifier, name: name.trim(), state: userState, city: city.trim(), language_preference: 'en', otp_verified_phone: identifier });
       const { access_token, refresh_token, user } = res.data.data;
       setToken(access_token, refresh_token);
       setUser(user);
