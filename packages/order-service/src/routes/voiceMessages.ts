@@ -4,10 +4,13 @@
  * Audio → S3; Whisper → transcription stored in voice_messages.
  */
 import { Router, Request, Response } from 'express';
+// @ts-ignore
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
+// @ts-ignore
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import axios from 'axios';
+// @ts-ignore
 import FormData from 'form-data';
 import {
   authenticate,

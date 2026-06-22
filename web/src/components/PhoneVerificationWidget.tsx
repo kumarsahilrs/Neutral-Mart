@@ -9,7 +9,6 @@ import { useState } from 'react';
 import { Phone, CheckCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import api from '@/lib/api';
-import { OtpBoxesSimple } from './OtpBoxesSimple';
 
 interface Props {
   currentPhone?: string | null;
