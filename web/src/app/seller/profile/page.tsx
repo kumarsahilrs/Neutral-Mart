@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Loader2, Store, ExternalLink, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Loader2, Store, ExternalLink, ToggleLeft, ToggleRight, CheckCircle, Circle, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 import api, { storefrontApi } from '@/lib/api';
 import { getUser, isAuthenticated } from '@/lib/auth';
@@ -157,7 +157,10 @@ export default function SellerProfilePage() {
             </div>
           </div>
 
-          {/* Storefront Settings (unchanged) */}
+          {/* Onboarding progress */}
+          <SellerOnboarding profile={profile} />
+
+          {/* Storefront Settings */}
           <StorefrontSettings />
         </div>
       )}
@@ -296,6 +299,114 @@ function StorefrontSettings() {
         {saving ? <><Loader2 className="w-4 h-4 animate-spin" />Saving...</>
           : <><Store className="w-4 h-4" />Save Storefront Settings</>}
       </button>
+    </div>
+  );
+}
+
+// ── Seller Onboarding Progress ───────────────────────────────────────────────
+
+interface SellerOnboardingProps { profile?: { business_name?: string; gst_number?: string; bank_account_last4?: string; kyc_status?: string } }
+
+function SellerOnboarding({ profile }: SellerOnboardingProps) {
+  const [open, setOpen] = useState<number | null>(null);
+  const [form, setForm] = useState({ business_name: '', business_type: '', state: '', city: '', gst_number: '', pan_number: '', account_number: '', ifsc: '', account_holder: '' });
+  const [saving, setSaving] = useState(false);
+
+  const steps = [
+    { label: 'Business details', desc: 'Name, type, city & state', done: !!(profile?.business_name && profile.business_name !== profile?.business_name?.split('@')[0]) },
+    { label: 'GST & PAN', desc: 'Tax identification for invoices', done: !!profile?.gst_number },
+    { label: 'Bank account', desc: 'For receiving payouts', done: !!profile?.bank_account_last4 },
+  ];
+  const completedCount = steps.filter(s => s.done).length;
+  const allDone = completedCount === 3;
+
+  if (allDone) return null;
+
+  async function saveStep(stepIndex: number) {
+    setSaving(true);
+    try {
+      const payload: Record<string, string> = {};
+      if (stepIndex === 0) Object.assign(payload, { business_name: form.business_name, business_type: form.business_type, state: form.state, city: form.city });
+      if (stepIndex === 1) Object.assign(payload, { gst_number: form.gst_number, pan_number: form.pan_number });
+      if (stepIndex === 2) Object.assign(payload, { account_number: form.account_number, ifsc: form.ifsc, account_holder_name: form.account_holder });
+      await api.patch('/seller/profile', payload);
+      toast.success('Saved! Refresh to see updated status.');
+      setOpen(null);
+    } catch { toast.error('Failed to save. Please try again.'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="nm-card" style={{ padding: 22 }}>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="disp" style={{ fontSize: 16, fontWeight: 700, color: 'var(--nm-ink)', margin: 0 }}>Complete your profile</h3>
+          <p style={{ fontSize: 12.5, color: 'var(--nm-muted)', margin: '3px 0 0' }}>{completedCount}/3 steps done — required to receive payouts</p>
+        </div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {steps.map((s, i) => <div key={i} style={{ width: 28, height: 6, borderRadius: 999, background: s.done ? 'var(--nm-green)' : 'var(--nm-line)' }} />)}
+        </div>
+      </div>
+
+      {/* Steps */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {steps.map((s, i) => (
+          <div key={i} className="nm-card" style={{ padding: 0, overflow: 'hidden' }}>
+            <button onClick={() => setOpen(open === i ? null : i)}
+              className="w-full flex items-center gap-3"
+              style={{ padding: '14px 16px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+              {s.done
+                ? <CheckCircle size={20} style={{ color: 'var(--nm-green)', flexShrink: 0 }} />
+                : <Circle size={20} style={{ color: 'var(--nm-line)', flexShrink: 0 }} />}
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--nm-ink)', margin: 0 }}>{s.label}</p>
+                <p style={{ fontSize: 12, color: 'var(--nm-muted)', margin: 0 }}>{s.desc}</p>
+              </div>
+              <span className="nm-pill" style={{ background: s.done ? 'var(--nm-green-soft)' : 'var(--nm-gold-soft)', color: s.done ? 'var(--nm-green)' : 'var(--nm-gold-ink)', fontWeight: 700, fontSize: 11 }}>
+                {s.done ? 'Done' : 'Pending'}
+              </span>
+              {!s.done && (open === i ? <ChevronUp size={16} style={{ color: 'var(--nm-muted)' }} /> : <ChevronDown size={16} style={{ color: 'var(--nm-muted)' }} />)}
+            </button>
+
+            {/* Expandable form */}
+            {open === i && !s.done && (
+              <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 10, borderTop: '1px solid var(--nm-line)' }}>
+                {i === 0 && (<>
+                  <div><label className="nm-label">Business name</label><input value={form.business_name} onChange={e => setForm(f => ({...f, business_name: e.target.value}))} className="nm-input" placeholder="Verité Distributors Pvt. Ltd." /></div>
+                  <div><label className="nm-label">Business type</label>
+                    <select value={form.business_type} onChange={e => setForm(f => ({...f, business_type: e.target.value}))} className="nm-select">
+                      <option value="">Select type</option>
+                      {['manufacturer','distributor','retailer','wholesaler'].map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="nm-label">State</label><input value={form.state} onChange={e => setForm(f => ({...f, state: e.target.value}))} className="nm-input" placeholder="Maharashtra" /></div>
+                    <div><label className="nm-label">City</label><input value={form.city} onChange={e => setForm(f => ({...f, city: e.target.value}))} className="nm-input" placeholder="Mumbai" /></div>
+                  </div>
+                </>)}
+                {i === 1 && (<>
+                  <div><label className="nm-label">GSTIN</label><input value={form.gst_number} onChange={e => setForm(f => ({...f, gst_number: e.target.value.toUpperCase()}))} className="nm-input" placeholder="27AABCA1234A1Z5" maxLength={15} /></div>
+                  <div><label className="nm-label">PAN</label><input value={form.pan_number} onChange={e => setForm(f => ({...f, pan_number: e.target.value.toUpperCase()}))} className="nm-input" placeholder="AABCA1234A" maxLength={10} /></div>
+                  <p style={{ fontSize: 11.5, color: 'var(--nm-faint)' }}>🔒 Encrypted and used only for tax compliance</p>
+                </>)}
+                {i === 2 && (<>
+                  <div><label className="nm-label">Account holder name</label><input value={form.account_holder} onChange={e => setForm(f => ({...f, account_holder: e.target.value}))} className="nm-input" /></div>
+                  <div><label className="nm-label">Account number</label><input value={form.account_number} onChange={e => setForm(f => ({...f, account_number: e.target.value}))} className="nm-input" /></div>
+                  <div><label className="nm-label">IFSC code</label><input value={form.ifsc} onChange={e => setForm(f => ({...f, ifsc: e.target.value.toUpperCase()}))} className="nm-input" placeholder="HDFC0001234" /></div>
+                </>)}
+                <button onClick={() => saveStep(i)} disabled={saving} className="nm-btn-primary" style={{ padding: '11px', fontSize: 13.5 }}>
+                  {saving ? <><Loader2 size={14} className="animate-spin" /> Saving...</> : 'Save & continue'}
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <p style={{ fontSize: 12, color: 'var(--nm-faint)', textAlign: 'center', marginTop: 12 }}>
+        You can use your dashboard while completing these steps
+      </p>
     </div>
   );
 }

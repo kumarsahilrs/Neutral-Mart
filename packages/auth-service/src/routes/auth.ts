@@ -468,6 +468,41 @@ authRouter.post(
   }
 );
 
+// ── POST /auth/seller/quick-register — minimal seller account creation ────────
+// Called after email OTP verify when user wants to be a seller.
+// Creates seller profile with minimal data — rest filled in /seller/profile.
+
+authRouter.post('/seller/quick-register', authenticate, async (req: Request, res: Response) => {
+  const { business_name } = req.body as { business_name?: string };
+
+  // If already a seller, just return current user
+  if (req.user!.role === 'seller') {
+    return res.json(successResponse({ message: 'Already a seller', user: { role: 'seller' } }));
+  }
+
+  await withTransaction(async (client) => {
+    // Upgrade user role to seller
+    await client.query('UPDATE users SET role = $1 WHERE id = $2', ['seller', req.user!.sub]);
+
+    // Create minimal seller profile
+    const profileId = (await client.query(
+      `INSERT INTO seller_profiles (id, user_id, business_name, verification_tier)
+       VALUES (gen_random_uuid(), $1, $2, 'unverified')
+       ON CONFLICT (user_id) DO UPDATE SET business_name = EXCLUDED.business_name
+       RETURNING id`,
+      [req.user!.sub, business_name ?? 'My Business']
+    )).rows[0].id;
+
+    logger.info('Seller quick-register', { userId: req.user!.sub, profileId });
+  });
+
+  const tokens = generateTokens(req.user!.sub, req.user!.phone, 'seller', req.user!.sub);
+  return res.json(successResponse({
+    user: { id: req.user!.sub, role: 'seller' },
+    ...tokens,
+  }));
+});
+
 // ── POST /auth/logout ────────────────────────────────────────
 authRouter.post('/logout', authenticate, async (req: Request, res: Response) => {
   await deleteSession(req.user!.sub);
