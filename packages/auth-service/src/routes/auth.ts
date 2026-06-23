@@ -289,7 +289,7 @@ authRouter.post('/refresh', async (req: Request, res: Response) => {
     return;
   }
   try {
-    const publicKey = Buffer.from(stripQuotes(process.env.JWT_PUBLIC_KEY || ''), 'base64').toString();
+    const publicKey = loadKey(process.env.JWT_PUBLIC_KEY || '');
     const payload = jwt.verify(refresh_token, publicKey, { algorithms: ['RS256'] }) as { sub: string; phone: string; role: string; profile_id: string };
     const tokens = generateTokens(payload.sub, payload.phone, payload.role as never, payload.profile_id);
     await setSession(payload.sub, tokens.refresh_token, 60 * 60 * 24 * 30);
@@ -643,14 +643,14 @@ authRouter.post('/google', async (req: Request, res: Response) => {
 });
 
 // ── Helpers ──────────────────────────────────────────────────
-function stripQuotes(s: string) { return s.replace(/^["']|["']$/g, '').trim(); }
+function loadKey(raw: string): string {
+  const s = raw.replace(/^["']|["']$/g, '').trim();
+  if (s.includes('-----BEGIN')) return s.replace(/\\n/g, '\n'); // already a PEM
+  return Buffer.from(s, 'base64').toString('utf-8');             // base64-encoded PEM
+}
 
 function generateTokens(userId: string, phone: string, role: string, profileId: string) {
-  const rawKey = process.env.JWT_PRIVATE_KEY || '';
-  logger.info('JWT key debug', { rawLen: rawKey.length, first5: rawKey.slice(0,5), last5: rawKey.slice(-5) });
-  const cleanKey = stripQuotes(rawKey);
-  const privateKey = Buffer.from(cleanKey, 'base64').toString();
-  logger.info('JWT key decoded', { pemLen: privateKey.length, pemStart: privateKey.slice(0,27) });
+  const privateKey = loadKey(process.env.JWT_PRIVATE_KEY || '');
   const access_token = jwt.sign(
     { sub: userId, phone, role, profile_id: profileId },
     privateKey,
