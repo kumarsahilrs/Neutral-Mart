@@ -228,13 +228,29 @@ export default function NewListingPage() {
     setErrors((prev) => { const n = { ...prev }; delete n[key]; return n; });
   }
 
-  // Fetch sectors
+  // Fallback sectors in case DB is empty or service is unreachable
+  const FALLBACK_SECTORS: Sector[] = [
+    { id: 'b5cb8935-cf1c-43af-a7d8-1791ee4ec117', name: 'Automobiles',          slug: 'automobiles' },
+    { id: '7ef70f23-4078-4e0d-af96-dc0989e2ae9c', name: 'Clothing & Textiles',  slug: 'clothing' },
+    { id: '59c9c157-52fb-45cf-afe1-5f8ab48dd76e', name: 'FMCG & Food',          slug: 'fmcg' },
+    { id: '075530ac-8ccb-4042-abf7-03d044ee6d7a', name: 'Furniture',            slug: 'furniture' },
+    { id: '083edb57-efa5-4ad9-859c-d7f7866b543b', name: 'Industrial Machinery', slug: 'machinery' },
+    { id: '142da4ad-f331-45da-9525-5d9d83867319', name: 'Pharma & Healthcare',  slug: 'pharma' },
+    { id: '7633c8a6-6d81-4592-824a-a2241f7f5b11', name: 'Software & Licenses',  slug: 'software' },
+    { id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', name: 'Electronics',          slug: 'electronics' },
+    { id: 'b2c3d4e5-f6a7-8901-bcde-f12345678901', name: 'Construction',         slug: 'construction' },
+    { id: 'c3d4e5f6-a7b8-9012-cdef-123456789012', name: 'Agriculture',          slug: 'agriculture' },
+  ];
+
+  // Fetch sectors from API; fall back to static list if empty or failed
   const { data: sectorsData } = useQuery({
     queryKey: ['sectors'],
     queryFn: () => inventoryApi.getSectors(),
     select: (res) => (res.data as unknown as { data: Sector[] })?.data ?? (res.data as unknown as Sector[]),
   });
-  const sectors: Sector[] = Array.isArray(sectorsData) ? sectorsData : [];
+  const sectors: Sector[] = (Array.isArray(sectorsData) && sectorsData.length > 0)
+    ? sectorsData
+    : FALLBACK_SECTORS;
 
   // ── Validation (covers all fields in one pass) ─────────────────────────────────
   function validateAll(): boolean {
