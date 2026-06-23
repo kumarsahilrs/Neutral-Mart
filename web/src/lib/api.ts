@@ -23,8 +23,15 @@ api.interceptors.response.use(
       // Not for every 401 (e.g. permission denied, feature locked)
       const code = (error.response?.data as { code?: string })?.code;
       if (code === 'TOKEN_INVALID' || code === 'AUTH_REQUIRED') {
-        removeToken();
-        if (typeof window !== 'undefined') window.location.href = '/login';
+        // Guard against the post-login race: a request that was issued before the
+        // freshly-set token was attached can come back 401. If a token IS present
+        // in storage, do NOT clear it or hard-redirect — the page guard will
+        // re-validate and the next request will carry the Authorization header.
+        // Only force logout when there is genuinely no usable token.
+        if (typeof window !== 'undefined' && !getToken()) {
+          removeToken();
+          if (window.location.pathname !== '/login') window.location.href = '/login';
+        }
       }
     }
     return Promise.reject(error);

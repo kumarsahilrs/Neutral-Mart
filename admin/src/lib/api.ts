@@ -27,9 +27,14 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       const code = (error.response?.data as { code?: string })?.code;
       if ((code === 'TOKEN_INVALID' || code === 'AUTH_REQUIRED') && typeof window !== 'undefined') {
-        localStorage.removeItem('nm_admin_token');
-        localStorage.removeItem('nm_admin_user');
-        window.location.href = '/login';
+        // Guard against the post-login race: if a token IS present in storage,
+        // don't clear it or hard-redirect on a transient 401 — the page guard
+        // re-validates and the next request carries the Authorization header.
+        const token = localStorage.getItem('nm_admin_token');
+        if (!token) {
+          localStorage.removeItem('nm_admin_user');
+          if (window.location.pathname !== '/login') window.location.href = '/login';
+        }
       }
     }
     return Promise.reject(error);
