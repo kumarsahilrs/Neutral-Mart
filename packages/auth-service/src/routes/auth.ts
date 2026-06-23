@@ -289,7 +289,7 @@ authRouter.post('/refresh', async (req: Request, res: Response) => {
     return;
   }
   try {
-    const publicKey = Buffer.from(process.env.JWT_PUBLIC_KEY || '', 'base64').toString();
+    const publicKey = Buffer.from(stripQuotes(process.env.JWT_PUBLIC_KEY || ''), 'base64').toString();
     const payload = jwt.verify(refresh_token, publicKey, { algorithms: ['RS256'] }) as { sub: string; phone: string; role: string; profile_id: string };
     const tokens = generateTokens(payload.sub, payload.phone, payload.role as never, payload.profile_id);
     await setSession(payload.sub, tokens.refresh_token, 60 * 60 * 24 * 30);
@@ -643,8 +643,10 @@ authRouter.post('/google', async (req: Request, res: Response) => {
 });
 
 // ── Helpers ──────────────────────────────────────────────────
+function stripQuotes(s: string) { return s.replace(/^["']|["']$/g, '').trim(); }
+
 function generateTokens(userId: string, phone: string, role: string, profileId: string) {
-  const privateKey = Buffer.from(process.env.JWT_PRIVATE_KEY || '', 'base64').toString();
+  const privateKey = Buffer.from(stripQuotes(process.env.JWT_PRIVATE_KEY || ''), 'base64').toString();
   const access_token = jwt.sign(
     { sub: userId, phone, role, profile_id: profileId },
     privateKey,

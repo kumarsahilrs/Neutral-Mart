@@ -13,7 +13,8 @@ declare global {
 function getPublicKey(): string {
   const key = process.env.JWT_PUBLIC_KEY;
   if (!key) throw new Error('JWT_PUBLIC_KEY not configured');
-  return Buffer.from(key, 'base64').toString('utf-8');
+  const clean = key.replace(/^["']|["']$/g, '').trim();
+  return Buffer.from(clean, 'base64').toString('utf-8');
 }
 
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
