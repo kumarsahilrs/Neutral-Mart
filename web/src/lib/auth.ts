@@ -4,7 +4,8 @@ const USER_KEY = 'nm_user';
 
 export interface AuthUser {
   id: string;
-  phone: string;
+  phone?: string;
+  email?: string;
   name: string;
   role: string;
   state?: string;
