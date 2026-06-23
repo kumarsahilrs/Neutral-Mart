@@ -421,8 +421,8 @@ authRouter.post(
     if (!valid) return res.status(401).json(errorResponse('Invalid or expired OTP', 'OTP_INVALID'));
 
     // Find or create user by email
-    let user = await queryOne<{ id: string; role: string; phone: string; full_name: string | null }>(
-      'SELECT id, role, phone, full_name FROM users WHERE email = $1 LIMIT 1',
+    let user = await queryOne<{ id: string; role: string; phone: string; name: string | null }>(
+      'SELECT id, role, phone, name FROM users WHERE email = $1 LIMIT 1',
       [email.toLowerCase()]
     );
 
@@ -431,10 +431,11 @@ authRouter.post(
     if (!user) {
       // First-time email login — create buyer account
       const userId = (await queryOne<{ id: string }>(
-        `INSERT INTO users (id, phone, email, full_name, role, is_verified)
-         VALUES (gen_random_uuid(), $1, $2, $3, 'buyer', true)
+        `INSERT INTO users (id, phone, email, name, role)
+         VALUES (gen_random_uuid(), $1, $2, $3, 'buyer')
          RETURNING id`,
-        [`email_${Date.now()}`, email.toLowerCase(), email.split('@')[0]]
+        // phone column is VARCHAR(15); base-36 timestamp keeps the placeholder within bounds
+        [`em_${Date.now().toString(36)}`, email.toLowerCase(), email.split('@')[0]]
       ))!.id;
 
       const profileRow = await queryOne<{ id: string }>(
@@ -443,8 +444,8 @@ authRouter.post(
       );
       profileId = profileRow!.id;
 
-      user = await queryOne<{ id: string; role: string; phone: string; full_name: string | null }>(
-        'SELECT id, role, phone, full_name FROM users WHERE id = $1',
+      user = await queryOne<{ id: string; role: string; phone: string; name: string | null }>(
+        'SELECT id, role, phone, name FROM users WHERE id = $1',
         [userId]
       );
     } else {
@@ -464,7 +465,7 @@ authRouter.post(
     logger.info('Email OTP login', { userId: user.id });
     return res.json(successResponse({
       ...tokens,
-      user: { id: user.id, name: user.full_name ?? email.split('@')[0], email, role: user.role },
+      user: { id: user.id, name: user.name ?? email.split('@')[0], email, role: user.role },
       registered: true,
     }));
   }
@@ -554,16 +555,16 @@ authRouter.post('/google', async (req: Request, res: Response) => {
     if (!googleSub || !email) return res.status(400).json(errorResponse('Incomplete Google profile'));
 
     // Find or create user by google_id (using email as fallback key)
-    let user = await queryOne<{ id: string; role: string; full_name: string; google_id: string | null }>(
-      `SELECT id, role, full_name, google_id FROM users WHERE google_id = $1 OR email = $2 LIMIT 1`,
+    let user = await queryOne<{ id: string; role: string; name: string; google_id: string | null }>(
+      `SELECT id, role, name, google_id FROM users WHERE google_id = $1 OR email = $2 LIMIT 1`,
       [googleSub, email]
     );
 
     if (!user) {
       // New user — create buyer account (sellers must register via /seller-register)
       const userId = (await queryOne<{ id: string }>(
-        `INSERT INTO users (id, phone, email, full_name, google_id, role, is_verified)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, 'buyer', true)
+        `INSERT INTO users (id, phone, email, name, google_id, role)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, 'buyer')
          RETURNING id`,
         [`google_${googleSub.slice(-8)}`, email, name ?? email.split('@')[0], googleSub]
       ))!.id;
@@ -574,8 +575,8 @@ authRouter.post('/google', async (req: Request, res: Response) => {
         [userId]
       );
 
-      user = await queryOne<{ id: string; role: string; full_name: string; google_id: string | null }>(
-        'SELECT id, role, full_name, google_id FROM users WHERE id = $1',
+      user = await queryOne<{ id: string; role: string; name: string; google_id: string | null }>(
+        'SELECT id, role, name, google_id FROM users WHERE id = $1',
         [userId]
       );
     } else if (!user.google_id) {
@@ -598,7 +599,7 @@ authRouter.post('/google', async (req: Request, res: Response) => {
     logger.info('Google login', { userId: user.id, email: email.replace(/(.{2}).+(@.+)/, '$1***$2') });
     return res.json(successResponse({
       ...tokens,
-      user: { id: user.id, name: user.full_name ?? name, email, role: user.role },
+      user: { id: user.id, name: user.name ?? name, email, role: user.role },
       registered: true,
     }));
   } catch (err) {
