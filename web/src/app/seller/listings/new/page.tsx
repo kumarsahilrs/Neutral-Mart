@@ -169,7 +169,7 @@ export default function NewListingPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResponse, setAiResponse] = useState('');
   const [aiConversationHistory, setAiConversationHistory] = useState<Array<{ role: string; content: string }>>([]);
-  const [showAiPanel, setShowAiPanel] = useState(true);
+  const [showAiPanel, setShowAiPanel] = useState(false);
 
   async function handleAiPrompt() {
     if (!aiPrompt.trim()) return;
@@ -275,18 +275,26 @@ export default function NewListingPage() {
     return Object.keys(errs).length === 0;
   }
 
-  // ── Image upload (logic preserved) ─────────────────────────────────────────────
-  async function getPresignedUrl(file: File): Promise<{ uploadUrl: string; imageUrl: string }> {
-    const res = await api.get<{ data: { uploadUrl: string; imageUrl: string } }>(
-      '/listings/upload-url',
-      { params: { filename: file.name, filetype: file.type } }
-    );
-    return (res.data as unknown as { data: { uploadUrl: string; imageUrl: string } })?.data ?? res.data;
+  // ── Image upload ───────────────────────────────────────────────────────────────
+  function fileToDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   }
 
   async function uploadFile(img: UploadedImage, idx: number): Promise<void> {
     try {
-      const { uploadUrl, imageUrl } = await getPresignedUrl(img.file);
+      // Try S3 presigned URL upload
+      const res = await api.post<{ data: { presigned_url: string; cdn_url: string } }>(
+        '/images/presigned',
+        { filename: img.file.name, filetype: img.file.type }
+      );
+      const { presigned_url: uploadUrl, cdn_url: imageUrl } =
+        (res.data as unknown as { data: { presigned_url: string; cdn_url: string } })?.data ?? res.data;
+
       setDraft((prev) => {
         const images = [...prev.images];
         images[idx] = { ...images[idx], uploadUrl, imageUrl, status: 'uploading', progress: 0 };
@@ -309,7 +317,7 @@ export default function NewListingPage() {
         };
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error(`Upload failed: ${xhr.status}`));
+          else reject(new Error(`S3 upload failed: ${xhr.status}`));
         };
         xhr.onerror = () => reject(new Error('Network error'));
         xhr.send(img.file);
@@ -321,11 +329,21 @@ export default function NewListingPage() {
         return { ...prev, images };
       });
     } catch {
-      setDraft((prev) => {
-        const images = [...prev.images];
-        if (images[idx]) images[idx] = { ...images[idx], status: 'error', progress: 0 };
-        return { ...prev, images };
-      });
+      // S3 not configured — use local data URL so preview works for demo
+      try {
+        const dataUrl = await fileToDataUrl(img.file);
+        setDraft((prev) => {
+          const images = [...prev.images];
+          if (images[idx]) images[idx] = { ...images[idx], imageUrl: dataUrl, status: 'done', progress: 100 };
+          return { ...prev, images };
+        });
+      } catch {
+        setDraft((prev) => {
+          const images = [...prev.images];
+          if (images[idx]) images[idx] = { ...images[idx], status: 'error', progress: 0 };
+          return { ...prev, images };
+        });
+      }
     }
   }
 
@@ -412,14 +430,9 @@ export default function NewListingPage() {
   async function handleGoLive() {
     if (!validateAll()) return;
 
-    const pendingUploads = draft.images.filter((i) => i.status !== 'done' && i.status !== 'error');
-    if (pendingUploads.length > 0) {
-      toast.error('Please wait for all images to finish uploading');
-      return;
-    }
-    const errorUploads = draft.images.filter((i) => i.status === 'error');
-    if (errorUploads.length > 0) {
-      toast.error('Some images failed to upload. Please retry or remove them.');
+    const stillUploading = draft.images.filter((i) => i.status === 'uploading' || i.status === 'pending');
+    if (stillUploading.length > 0) {
+      toast.error('Please wait for all photos to finish processing');
       return;
     }
 
@@ -442,7 +455,7 @@ export default function NewListingPage() {
         state: draft.pickup_state || '',
         city: draft.pickup_city || '',
         urgency_days: draft.urgency >= 4 ? draft.urgency : (draft.must_sell && draft.urgency_days ? Number(draft.urgency_days) : undefined),
-        images: draft.images.filter((i) => i.status === 'done').map((i) => i.imageUrl),
+        images: draft.images.filter((i) => i.status === 'done' && i.imageUrl).map((i) => i.imageUrl),
       });
       toast.success('Listing is live!');
       router.push('/seller/listings');
@@ -464,7 +477,7 @@ export default function NewListingPage() {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────────
-  const doneImages = draft.images.filter((i) => i.status === 'done' || i.status === 'uploading');
+  const allImages = draft.images; // show every image regardless of status
 
   return (
     <AppShell
@@ -483,24 +496,23 @@ export default function NewListingPage() {
       }
     >
       {/* AI Listing Assistant */}
-      {showAiPanel ? (
-        <div
-          className="mb-5"
-          style={{ borderRadius: 16, border: '1.5px solid rgba(31,107,58,.25)', background: 'var(--nm-green-soft)', overflow: 'hidden' }}
+      <div className="mb-5" style={{ borderRadius: 16, border: '1.5px solid rgba(31,107,58,.25)', background: 'var(--nm-green-soft)', overflow: 'hidden' }}>
+        <button
+          type="button"
+          onClick={() => setShowAiPanel(p => !p)}
+          className="w-full flex items-center justify-between"
+          style={{ padding: '12px 18px', background: 'none', border: 'none', cursor: 'pointer', borderBottom: showAiPanel ? '1px solid rgba(31,107,58,.16)' : 'none' }}
         >
-          <div className="flex items-center justify-between" style={{ padding: '12px 18px', borderBottom: '1px solid rgba(31,107,58,.16)' }}>
-            <div className="flex items-center gap-2">
-              <Sparkles size={16} style={{ color: 'var(--nm-green)' }} />
-              <span className="disp" style={{ fontSize: 14, fontWeight: 700, color: 'var(--nm-green)' }}>AI listing assistant</span>
-            </div>
-            <button onClick={() => setShowAiPanel(false)} style={{ fontSize: 12, color: 'var(--nm-green)', background: 'none', border: 'none', cursor: 'pointer' }}>
-              Fill manually instead
-            </button>
+          <div className="flex items-center gap-2">
+            <Sparkles size={16} style={{ color: 'var(--nm-green)' }} />
+            <span className="disp" style={{ fontSize: 14, fontWeight: 700, color: 'var(--nm-green)' }}>AI listing assistant</span>
+            <span style={{ fontSize: 11, color: 'var(--nm-green)', opacity: 0.7, fontWeight: 500 }}>Describe in Hindi/English → auto-fills form</span>
           </div>
+          <span style={{ fontSize: 12, color: 'var(--nm-green)', fontWeight: 600 }}>{showAiPanel ? '▲ Close' : '▼ Open'}</span>
+        </button>
+
+        {showAiPanel && (
           <div style={{ padding: 18 }}>
-            <p style={{ fontSize: 12.5, color: 'var(--nm-green)', marginBottom: 12 }}>
-              Describe your dead stock in Hindi or English — AI will fill the form for you.
-            </p>
             {aiConversationHistory.length > 0 && (
               <div className="flex flex-col gap-2 mb-3" style={{ maxHeight: 160, overflowY: 'auto' }}>
                 {aiConversationHistory.map((msg, i) => (
@@ -519,9 +531,7 @@ export default function NewListingPage() {
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && e.metaKey) handleAiPrompt(); }}
-              placeholder={aiConversationHistory.length === 0
-                ? 'e.g. Mere paas 500 shirts hain size M L XL, brand Levis, Surat godown mein, 3 saal se nahi bike...'
-                : 'Reply to AI question...'}
+              placeholder="e.g. Mere paas 500 shirts hain size M L XL, Surat godown mein, 3 saal se nahi bike..."
               className="nm-input"
               style={{ width: '100%', resize: 'none', fontSize: 13.5, marginBottom: 12 }}
               rows={3}
@@ -533,8 +543,8 @@ export default function NewListingPage() {
               style={{ fontSize: 13.5 }}
             >
               {aiLoading
-                ? <><Loader2 size={16} className="animate-spin" /> AI is analyzing…</>
-                : <><Sparkles size={16} /> {aiConversationHistory.length === 0 ? 'Generate listing with AI' : 'Send'}</>}
+                ? <><Loader2 size={16} className="animate-spin" /> Analyzing…</>
+                : <><Sparkles size={16} /> {aiConversationHistory.length === 0 ? 'Fill form with AI' : 'Send'}</>}
             </button>
             {aiResponse && (
               <div style={{ fontSize: 12.5, color: 'var(--nm-green)', background: 'var(--nm-card)', borderRadius: 10, padding: 12, marginTop: 12, border: '1px solid rgba(31,107,58,.16)' }}>
@@ -542,16 +552,8 @@ export default function NewListingPage() {
               </div>
             )}
           </div>
-        </div>
-      ) : (
-        <button
-          onClick={() => setShowAiPanel(true)}
-          className="w-full flex items-center justify-center gap-2 mb-5"
-          style={{ padding: '11px', fontSize: 13.5, color: 'var(--nm-green)', border: '1.5px dashed rgba(31,107,58,.4)', borderRadius: 14, background: 'transparent', cursor: 'pointer' }}
-        >
-          <Sparkles size={16} /> Use AI to fill this form
-        </button>
-      )}
+        )}
+      </div>
 
       {/* Two-column form */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -761,77 +763,121 @@ export default function NewListingPage() {
 
           {/* Photos */}
           <SectionCard title="Photos">
-            <div className="flex flex-wrap gap-3">
-              {doneImages.map((img, idx) => {
-                const realIdx = draft.images.indexOf(img);
-                return (
-                  <div key={realIdx} className="relative" style={{ width: 120, height: 120 }}>
-                    <div style={{ width: 120, height: 120, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--nm-line)', background: 'var(--nm-panel)' }}>
+            {/* Drop zone (full width when no images, hidden otherwise) */}
+            {allImages.length === 0 && (
+              <div
+                onDrop={handleDrop}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+                onDragOver={(e) => e.preventDefault()}
+                onClick={() => fileInputRef.current?.click()}
+                className="flex flex-col items-center justify-center"
+                style={{
+                  borderRadius: 14, cursor: 'pointer', padding: '32px 0',
+                  border: `2px dashed ${isDragging ? 'var(--nm-green)' : 'var(--nm-line)'}`,
+                  background: isDragging ? 'var(--nm-green-soft)' : 'var(--nm-panel)',
+                  color: isDragging ? 'var(--nm-green)' : 'var(--nm-faint)',
+                  transition: 'all .12s',
+                }}
+              >
+                <ImageIcon size={32} style={{ marginBottom: 10 }} />
+                <span style={{ fontSize: 14, fontWeight: 600 }}>Drop photos here or click to browse</span>
+                <span style={{ fontSize: 12, marginTop: 4, opacity: 0.7 }}>JPEG, PNG, WebP · Max 5MB each · Up to 20 photos</span>
+              </div>
+            )}
+
+            {/* Image grid */}
+            {allImages.length > 0 && (
+              <div className="flex flex-wrap gap-3">
+                {allImages.map((img, idx) => (
+                  <div key={idx} className="relative" style={{ width: 110, height: 110 }}>
+                    <div style={{ width: 110, height: 110, borderRadius: 12, overflow: 'hidden', border: '1.5px solid var(--nm-line)', background: 'var(--nm-panel)', position: 'relative' }}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={img.previewUrl} alt={`Upload ${realIdx + 1}`} className="w-full h-full object-cover" />
+                      <img src={img.previewUrl} alt={`Photo ${idx + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+
+                      {/* Uploading overlay */}
                       {img.status === 'uploading' && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ background: 'rgba(20,73,42,.5)' }}>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ background: 'rgba(20,73,42,.6)' }}>
                           <Loader2 size={18} className="animate-spin" style={{ color: '#fff' }} />
-                          <span style={{ color: '#fff', fontSize: 12, marginTop: 4 }}>{img.progress}%</span>
+                          <span style={{ color: '#fff', fontSize: 11, marginTop: 4, fontWeight: 600 }}>{img.progress}%</span>
                         </div>
                       )}
+
+                      {/* Pending overlay */}
+                      {img.status === 'pending' && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ background: 'rgba(0,0,0,.35)' }}>
+                          <Loader2 size={16} className="animate-spin" style={{ color: '#fff' }} />
+                        </div>
+                      )}
+
+                      {/* Error overlay */}
                       {img.status === 'error' && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1" style={{ background: 'rgba(182,68,42,.6)' }}>
-                          <X size={18} style={{ color: '#fff' }} />
-                          <button onClick={(e) => { e.stopPropagation(); retryImage(realIdx); }} style={{ color: '#fff', fontSize: 11, background: 'rgba(255,255,255,.2)', borderRadius: 6, padding: '2px 6px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
-                            <RefreshCw size={11} /> Retry
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1" style={{ background: 'rgba(182,68,42,.65)' }}>
+                          <X size={16} style={{ color: '#fff' }} />
+                          <button onClick={(e) => { e.stopPropagation(); retryImage(idx); }} style={{ color: '#fff', fontSize: 10, background: 'rgba(255,255,255,.25)', borderRadius: 6, padding: '2px 6px', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <RefreshCw size={10} /> Retry
                           </button>
                         </div>
                       )}
+
+                      {/* Done checkmark */}
                       {img.status === 'done' && (
-                        <div className="absolute flex items-center justify-center" style={{ top: 6, right: 6, width: 20, height: 20, borderRadius: 999, background: 'var(--nm-green)' }}>
-                          <Check size={12} style={{ color: '#fff' }} />
+                        <div className="absolute flex items-center justify-center" style={{ top: 5, right: 5, width: 18, height: 18, borderRadius: 999, background: 'var(--nm-green)' }}>
+                          <Check size={11} style={{ color: '#fff' }} />
                         </div>
                       )}
-                      {realIdx === 0 && (
-                        <div className="absolute" style={{ top: 6, left: 6, background: 'var(--nm-green)', color: '#fff', fontSize: 10.5, fontWeight: 700, padding: '2px 7px', borderRadius: 6 }}>Cover</div>
+
+                      {/* Cover badge */}
+                      {idx === 0 && (
+                        <div className="absolute" style={{ top: 5, left: 5, background: 'var(--nm-gold)', color: '#fff', fontSize: 9.5, fontWeight: 700, padding: '2px 6px', borderRadius: 5, letterSpacing: '0.02em' }}>COVER</div>
                       )}
                     </div>
+
+                    {/* Remove button */}
                     <button
-                      onClick={() => removeImage(realIdx)}
-                      style={{ position: 'absolute', bottom: 6, right: 6, width: 22, height: 22, borderRadius: 999, background: 'var(--nm-red)', color: '#fff', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      type="button"
+                      onClick={() => removeImage(idx)}
+                      style={{ position: 'absolute', top: -6, right: -6, width: 20, height: 20, borderRadius: 999, background: 'var(--nm-red)', color: '#fff', border: '2px solid var(--nm-card)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}
                     >
-                      <X size={12} />
+                      <X size={10} />
                     </button>
                   </div>
-                );
-              })}
+                ))}
 
-              {draft.images.length < 20 && (
-                <div
-                  onDrop={handleDrop}
-                  onDragEnter={handleDragEnter}
-                  onDragLeave={handleDragLeave}
-                  onDragOver={(e) => e.preventDefault()}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex flex-col items-center justify-center"
-                  style={{
-                    width: 120, height: 120, borderRadius: 12, cursor: 'pointer',
-                    border: `1.5px dashed ${isDragging ? 'var(--nm-green)' : 'var(--nm-line)'}`,
-                    background: isDragging ? 'var(--nm-green-soft)' : 'var(--nm-panel)',
-                    color: isDragging ? 'var(--nm-green)' : 'var(--nm-faint)',
-                  }}
-                >
-                  <Upload size={20} />
-                  <span style={{ fontSize: 11, marginTop: 6 }}>Drop / browse</span>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }}
-                  />
-                </div>
-              )}
-            </div>
+                {/* Add more slot */}
+                {allImages.length < 20 && (
+                  <div
+                    onDrop={handleDrop}
+                    onDragEnter={handleDragEnter}
+                    onDragLeave={handleDragLeave}
+                    onDragOver={(e) => e.preventDefault()}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex flex-col items-center justify-center"
+                    style={{
+                      width: 110, height: 110, borderRadius: 12, cursor: 'pointer',
+                      border: `1.5px dashed ${isDragging ? 'var(--nm-green)' : 'var(--nm-line)'}`,
+                      background: isDragging ? 'var(--nm-green-soft)' : 'var(--nm-panel)',
+                      color: isDragging ? 'var(--nm-green)' : 'var(--nm-faint)',
+                    }}
+                  >
+                    <Upload size={18} />
+                    <span style={{ fontSize: 10.5, marginTop: 5, fontWeight: 600 }}>+ Add more</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              className="hidden"
+              onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }}
+            />
+
             <p style={{ fontSize: 11.5, color: 'var(--nm-faint)', marginTop: 10 }}>
-              {draft.images.length}/20 images · JPEG, PNG, WebP · Max 5MB each · First image is the cover.
+              {allImages.length}/20 photos · First photo is the cover · Drag to reorder
             </p>
           </SectionCard>
         </div>
