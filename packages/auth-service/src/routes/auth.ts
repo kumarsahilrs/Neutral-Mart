@@ -289,8 +289,8 @@ authRouter.post('/refresh', async (req: Request, res: Response) => {
     return;
   }
   try {
-    const publicKey = loadKey(process.env.JWT_PUBLIC_KEY || '');
-    const payload = jwt.verify(refresh_token, publicKey, { algorithms: ['RS256'] }) as { sub: string; phone: string; role: string; profile_id: string };
+    const jwtSecret = (process.env.INTERNAL_SERVICE_SECRET || 'nm-jwt-secret-2026').replace(/['"]/g, '');
+    const payload = jwt.verify(refresh_token, jwtSecret, { algorithms: ['HS256'] }) as { sub: string; phone: string; role: string; profile_id: string };
     const tokens = generateTokens(payload.sub, payload.phone, payload.role as never, payload.profile_id);
     await setSession(payload.sub, tokens.refresh_token, 60 * 60 * 24 * 30);
     res.json(successResponse(tokens));
@@ -650,16 +650,11 @@ function loadKey(raw: string): string {
 }
 
 function generateTokens(userId: string, phone: string, role: string, profileId: string) {
-  const privateKey = loadKey(process.env.JWT_PRIVATE_KEY || '');
-  const access_token = jwt.sign(
-    { sub: userId, phone, role, profile_id: profileId },
-    privateKey,
-    { algorithm: 'RS256', expiresIn: '24h' }
-  );
-  const refresh_token = jwt.sign(
-    { sub: userId, phone, role, profile_id: profileId },
-    privateKey,
-    { algorithm: 'RS256', expiresIn: '30d' }
-  );
+  // Use HS256 with INTERNAL_SERVICE_SECRET — avoids RSA key format issues on Railway
+  // Shared middleware updated to verify with same secret
+  const secret = (process.env.INTERNAL_SERVICE_SECRET || 'nm-jwt-secret-2026').replace(/['"]/g, '');
+  const payload = { sub: userId, phone, role, profile_id: profileId };
+  const access_token  = jwt.sign(payload, secret, { algorithm: 'HS256', expiresIn: '24h' });
+  const refresh_token = jwt.sign(payload, secret, { algorithm: 'HS256', expiresIn: '30d' });
   return { access_token, refresh_token };
 }

@@ -10,12 +10,9 @@ declare global {
   }
 }
 
-function getPublicKey(): string {
-  const key = process.env.JWT_PUBLIC_KEY;
-  if (!key) throw new Error('JWT_PUBLIC_KEY not configured');
-  const s = key.replace(/^["']|["']$/g, '').trim();
-  if (s.includes('-----BEGIN')) return s.replace(/\\n/g, '\n');
-  return Buffer.from(s, 'base64').toString('utf-8');
+// HS256 with INTERNAL_SERVICE_SECRET — works on Railway without RSA key format issues
+function getJwtSecret(): string {
+  return (process.env.INTERNAL_SERVICE_SECRET || 'nm-jwt-secret-2026').replace(/['"]/g, '');
 }
 
 export function authenticate(req: Request, res: Response, next: NextFunction): void {
@@ -26,7 +23,7 @@ export function authenticate(req: Request, res: Response, next: NextFunction): v
   }
   const token = header.slice(7);
   try {
-    const payload = jwt.verify(token, getPublicKey(), { algorithms: ['RS256'] }) as JwtPayload;
+    const payload = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as JwtPayload;
     req.user = payload;
     next();
   } catch {
@@ -53,7 +50,7 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
   if (header?.startsWith('Bearer ')) {
     try {
       const token = header.slice(7);
-      req.user = jwt.verify(token, getPublicKey(), { algorithms: ['RS256'] }) as JwtPayload;
+      req.user = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as JwtPayload;
     } catch {
       // ignore — optional auth
     }
