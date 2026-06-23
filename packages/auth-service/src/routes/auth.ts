@@ -18,19 +18,21 @@ import { verifyBankAccount } from '../services/kyc';
 
 export const authRouter = Router();
 
-// ── Stateless JWT-signed OTP (no Redis/DB/memory needed) ─────────────────────
-// OTP is embedded in a signed JWT returned in the send response.
-// Frontend sends the token back on verify. We decode+verify = no storage needed.
+// ── Stateless JWT-signed OTP — uses RS256 private/public key pair ────────────
+function getPrivKey() { return Buffer.from(process.env.JWT_PRIVATE_KEY ?? '', 'base64').toString(); }
+function getPubKey()  { return Buffer.from(process.env.JWT_PUBLIC_KEY  ?? '', 'base64').toString(); }
+
 function signOtpToken(email: string, otp: string): string {
-  const secret = process.env.INTERNAL_SERVICE_SECRET ?? 'dev-secret';
-  return jwt.sign({ email, otp }, secret, { expiresIn: '10m' });
+  return jwt.sign({ em: email.toLowerCase(), ot: otp, pu: 'eotp' }, getPrivKey(), { algorithm: 'RS256', expiresIn: '10m' });
 }
 function verifyOtpToken(token: string, email: string, otp: string): boolean {
   try {
-    const secret = process.env.INTERNAL_SERVICE_SECRET ?? 'dev-secret';
-    const payload = jwt.verify(token, secret) as { email: string; otp: string };
-    return payload.email.toLowerCase() === email.toLowerCase() && payload.otp === otp;
-  } catch { return false; }
+    const p = jwt.verify(token, getPubKey(), { algorithms: ['RS256'] }) as { em: string; ot: string; pu: string };
+    return p.pu === 'eotp' && p.em === email.toLowerCase() && p.ot === otp;
+  } catch (e) {
+    logger.warn('OTP token verify failed', { error: (e as Error).message });
+    return false;
+  }
 }
 
 // ── POST /auth/otp/send ──────────────────────────────────────
