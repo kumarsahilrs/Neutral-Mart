@@ -4,6 +4,12 @@ import OpenAI from 'openai';
 
 export const aiListingRouter = Router();
 
+// GET /ai/listing/health — confirm route is reachable and key is present
+aiListingRouter.get('/listing/health', (_req, res: Response) => {
+  const hasKey = !!process.env.OPENAI_API_KEY;
+  res.json({ ok: true, openai_configured: hasKey });
+});
+
 const SECTOR_LIST = ['automobiles', 'clothing', 'furniture', 'fmcg', 'pharma', 'software', 'machinery', 'electronics', 'construction', 'agriculture'];
 
 const SYSTEM_PROMPT = `You are NirmalMandi's AI listing assistant for B2B dead-stock liquidation. Sellers describe their unsold inventory in Hindi, English, or Hinglish.
@@ -46,13 +52,16 @@ function getClient(): OpenAI {
 
 // POST /ai/listing/prompt — natural language → structured listing fields
 aiListingRouter.post('/listing/prompt', authenticate, async (req: Request, res: Response) => {
-  const { seller_prompt, conversation_history = [] } = req.body as {
-    seller_prompt: string;
+  const body = req.body as {
+    seller_prompt?: string;
+    message?: string;
     conversation_history?: Array<{ role: string; content: string }>;
   };
+  const seller_prompt = (body.seller_prompt ?? body.message ?? '').trim();
+  const conversation_history = body.conversation_history ?? [];
 
-  if (!seller_prompt?.trim()) {
-    return res.status(400).json(errorResponse('seller_prompt is required'));
+  if (!seller_prompt) {
+    return res.status(400).json(errorResponse('message is required'));
   }
 
   try {
