@@ -31,7 +31,7 @@ const createListingSchema = z.object({
   mrp: z.number().positive().optional(),
   cost_price: z.number().positive().optional(),
   sector_specific_fields: z.record(z.unknown()).default({}),
-  images: z.array(z.string().url()).default([]),
+  images: z.array(z.string()).default([]),
   state: z.string().min(2),
   city: z.string().min(2),
   urgency_days: z.number().int().positive().optional(),

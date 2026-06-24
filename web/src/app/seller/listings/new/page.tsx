@@ -475,8 +475,11 @@ export default function NewListingPage() {
       });
       toast.success('Listing is live!');
       router.push('/seller/listings');
-    } catch {
-      toast.error('Failed to create listing. Please try again.');
+    } catch (e: unknown) {
+      const err = e as { response?: { status?: number; data?: { error?: string; message?: string } }; message?: string };
+      const msg = err?.response?.data?.error ?? err?.response?.data?.message ?? err?.message ?? 'Unknown error';
+      const status = err?.response?.status ?? '';
+      toast.error(`Failed to create listing (${status}): ${msg}`);
     } finally {
       setSubmitting(false);
     }
