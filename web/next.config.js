@@ -108,7 +108,8 @@ module.exports = {
       { source: '/api/disputes/:path*',            destination: `${DISPUTE}/disputes/:path*` },
       { source: '/api/disputes',                   destination: `${DISPUTE}/disputes` },
 
-      // ── AI service ───────────────────────────────────────────────────────
+      // ── AI service — listing prompt lives in inventory-service (no separate AI deploy needed)
+      { source: '/api/ai/listing/:path*',          destination: `${INVENTORY}/ai/listing/:path*` },
       { source: '/api/ai/:path*',                  destination: `${AI}/:path*` },
     ];
   },

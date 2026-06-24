@@ -7,6 +7,7 @@ import helmet from 'helmet';
 import { logger } from '@nirmalmandi/shared';
 import { listingsRouter } from './routes/listings';
 import { sectorsRouter } from './routes/sectors';
+import { aiListingRouter } from './routes/aiListing';
 import { imagesRouter } from './routes/images';
 import { adminInventoryRouter } from './routes/adminInventory';
 import { adminCategoriesRouter } from './routes/adminCategories';
@@ -30,6 +31,7 @@ app.use('/buyer', buyerRouter);
 app.use('/storefront', storefrontRouter);
 app.use('/admin/inventory', adminInventoryRouter);
 app.use('/admin/categories', adminCategoriesRouter);
+app.use('/ai', aiListingRouter);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error('Inventory service error', { error: err.message });
