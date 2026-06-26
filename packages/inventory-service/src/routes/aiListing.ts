@@ -1,14 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { authenticate, successResponse, errorResponse, logger } from '@nirmalmandi/shared';
-import OpenAI from 'openai';
+import { successResponse, errorResponse, logger } from '@nirmalmandi/shared';
 
 export const aiListingRouter = Router();
-
-// GET /ai/listing/health — confirm route is reachable and key is present
-aiListingRouter.get('/listing/health', (_req, res: Response) => {
-  const hasKey = !!process.env.OPENAI_API_KEY;
-  res.json({ ok: true, openai_configured: hasKey });
-});
 
 const SECTOR_LIST = ['automobiles', 'clothing', 'furniture', 'fmcg', 'pharma', 'software', 'machinery', 'electronics', 'construction', 'agriculture'];
 
@@ -44,13 +37,13 @@ dead_stock_type must be one of: excess, near_expiry, obsolete, seasonal, returns
 condition_grade must be one of: A, B, C, D
 unit must be one of: pieces, kg, boxes, cartons, pallets, units, meters, sets, bags, strips, bottles, liters`;
 
-function getClient(): OpenAI {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error('OPENAI_API_KEY not configured');
-  return new OpenAI({ apiKey: key });
-}
+// GET /ai/listing/health
+aiListingRouter.get('/listing/health', (_req, res: Response) => {
+  const hasKey = !!process.env.OPENAI_API_KEY;
+  res.json({ ok: true, openai_configured: hasKey });
+});
 
-// POST /ai/listing/prompt — natural language → structured listing fields (no auth required)
+// POST /ai/listing/prompt — natural language → structured listing fields
 aiListingRouter.post('/listing/prompt', async (req: Request, res: Response) => {
   const body = req.body as {
     seller_prompt?: string;
@@ -64,15 +57,24 @@ aiListingRouter.post('/listing/prompt', async (req: Request, res: Response) => {
     return res.status(400).json(errorResponse('message is required'));
   }
 
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) {
+    return res.status(503).json(errorResponse('AI service not configured', 'AI_UNAVAILABLE'));
+  }
+
   try {
-    const client = getClient();
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
-      ...conversation_history.map(m => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-      })),
-      { role: 'user', content: seller_prompt },
+    // Lazy import — prevents crash if openai module has issues at startup
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { default: OpenAI } = require('openai') as { default: new (opts: { apiKey: string }) => {
+      chat: { completions: { create: (opts: Record<string, unknown>) => Promise<{ choices: Array<{ message: { content: string } }> }> } }
+    }};
+
+    const client = new OpenAI({ apiKey: key });
+
+    const messages = [
+      { role: 'system' as const, content: SYSTEM_PROMPT },
+      ...conversation_history.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      { role: 'user' as const, content: seller_prompt },
     ];
 
     const completion = await client.chat.completions.create({
@@ -84,7 +86,6 @@ aiListingRouter.post('/listing/prompt', async (req: Request, res: Response) => {
     });
 
     const raw = completion.choices[0]?.message?.content ?? '{}';
-
     let parsed: Record<string, unknown> = {};
     try { parsed = JSON.parse(raw); } catch { parsed = { conversational_response: raw }; }
 
@@ -96,11 +97,8 @@ aiListingRouter.post('/listing/prompt', async (req: Request, res: Response) => {
       questions: parsed.questions ?? [],
     }));
   } catch (err: unknown) {
-    const msg = (err as Error).message;
+    const msg = (err as Error).message ?? 'Unknown error';
     logger.error('AI listing prompt error', { error: msg });
-    if (msg.includes('OPENAI_API_KEY')) {
-      return res.status(503).json(errorResponse('AI service not configured', 'AI_UNAVAILABLE'));
-    }
-    return res.status(500).json(errorResponse('AI listing engine error', 'AI_ERROR'));
+    return res.status(500).json(errorResponse(`AI error: ${msg}`, 'AI_ERROR'));
   }
 });

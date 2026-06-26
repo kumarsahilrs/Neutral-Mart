@@ -24,6 +24,10 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'inventory-service' }));
+app.get('/secret-hint', (_req, res) => {
+  const s = (process.env.INTERNAL_SERVICE_SECRET || 'nm-jwt-secret-2026').replace(/['"]/g, '').trim();
+  res.json({ hint: s.slice(0, 6) + '***' + s.slice(-4), len: s.length });
+});
 app.use('/listings', listingsRouter);
 app.use('/sectors', sectorsRouter);
 app.use('/images', imagesRouter);
