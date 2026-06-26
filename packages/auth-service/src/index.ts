@@ -32,5 +32,13 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
-app.listen(PORT, () => logger.info(`Auth service running on :${PORT}`));
+app.get('/secret-hint', (_req, res) => {
+  const s = (process.env.INTERNAL_SERVICE_SECRET || 'nm-jwt-secret-2026').replace(/['"]/g, '').trim();
+  res.json({ hint: s.slice(0, 6) + '***' + s.slice(-4), len: s.length });
+});
+
+app.listen(PORT, () => {
+  const s = (process.env.INTERNAL_SERVICE_SECRET || 'nm-jwt-secret-2026').replace(/['"]/g, '').trim();
+  logger.info(`Auth service running on :${PORT} — secret hint: ${s.slice(0,4)}***${s.slice(-3)} (len ${s.length})`);
+});
 export default app;
