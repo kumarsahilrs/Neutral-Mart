@@ -65,7 +65,52 @@ notificationsRouter.post('/send-bulk', async (req: Request, res: Response) => {
   return res.json(successResponse({ queued: userIds.length }));
 });
 
-// GET /notifications/my — user's notification history
+// GET /notifications — user's notification history (alias for /my)
+notificationsRouter.get('/', authenticate, async (req: Request, res: Response) => {
+  const userId = req.user!.sub;
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
+  const offset = (page - 1) * limit;
+  const type = req.query.type as string | undefined;
+
+  const conditions = ['user_id = $1'];
+  const params: unknown[] = [userId];
+  let idx = 2;
+  if (type) { conditions.push(`type ILIKE $${idx++}`); params.push(`%${type}%`); }
+
+  const where = `WHERE ${conditions.join(' AND ')}`;
+
+  const [rows, countRows] = await Promise.all([
+    query(
+      `SELECT id, type, title, body, channel, status, is_read, created_at
+       FROM notifications ${where} ORDER BY created_at DESC LIMIT $${idx++} OFFSET $${idx++}`,
+      [...params, limit, offset]
+    ),
+    query(`SELECT COUNT(*) AS total FROM notifications ${where}`, params),
+  ]);
+
+  return res.json(successResponse({ data: rows, total: parseInt((countRows[0] as { total: string }).total, 10) }));
+});
+
+// GET /notifications/unread-count — badge count for nav
+notificationsRouter.get('/unread-count', authenticate, async (req: Request, res: Response) => {
+  const [row] = await query<{ count: string }>(
+    `SELECT COUNT(*) AS count FROM notifications WHERE user_id = $1 AND (is_read = false OR status != 'read')`,
+    [req.user!.sub]
+  );
+  return res.json(successResponse({ count: parseInt(row?.count ?? '0', 10) }));
+});
+
+// PATCH /notifications/read-all — mark all as read
+notificationsRouter.patch('/read-all', authenticate, async (req: Request, res: Response) => {
+  await query(
+    `UPDATE notifications SET is_read = true, status = 'read' WHERE user_id = $1 AND is_read = false`,
+    [req.user!.sub]
+  );
+  return res.json(successResponse({ message: 'All notifications marked as read' }));
+});
+
+// GET /notifications/my — user's notification history (legacy)
 notificationsRouter.get('/my', authenticate, async (req: Request, res: Response) => {
   const userId = req.user!.sub;
   const page = parseInt(req.query.page as string) || 1;
