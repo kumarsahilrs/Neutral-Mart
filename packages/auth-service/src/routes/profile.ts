@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { authenticate, requireRole, query, queryOne, successResponse, errorResponse } from '@nirmalmandi/shared';
+import bcrypt from 'bcryptjs';
 
 export const profileRouter = Router();
 
@@ -44,20 +45,88 @@ profileRouter.patch('/me', async (req: Request, res: Response) => {
     name: z.string().min(2).max(255).optional(),
     email: z.string().email().optional(),
     language_preference: z.enum(['en', 'hi', 'ta', 'te', 'kn', 'mr', 'bn', 'gu']).optional(),
+    // seller profile fields
+    business_name: z.string().min(2).max(255).optional(),
+    business_type: z.enum(['manufacturer', 'distributor', 'retailer', 'wholesaler']).optional(),
+    gst_number: z.string().optional(),
+    city: z.string().optional(),
+    state: z.string().optional(),
+    address_line1: z.string().optional(),
+    pincode: z.string().optional(),
+    // notification preferences (stored as JSON in users table if column exists, else silently ignored)
+    notification_prefs: z.record(z.boolean()).optional(),
   });
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json(errorResponse(parsed.error.errors[0].message));
     return;
   }
-  const updates = parsed.data;
-  const fields = Object.entries(updates).map(([k], i) => `${k} = $${i + 2}`);
-  if (!fields.length) { res.json(successResponse({ message: 'Nothing to update' })); return; }
-  await query(
-    `UPDATE users SET ${fields.join(', ')}, updated_at = NOW() WHERE id = $1`,
-    [req.user!.sub, ...Object.values(updates)]
-  );
+  const { business_name, business_type, gst_number, city, state, address_line1, pincode, notification_prefs, ...userUpdates } = parsed.data;
+
+  // Update users table
+  const userFields = Object.keys(userUpdates).filter(k => userUpdates[k as keyof typeof userUpdates] !== undefined);
+  if (userFields.length) {
+    const setClauses = userFields.map((k, i) => `${k} = $${i + 2}`).join(', ');
+    await query(
+      `UPDATE users SET ${setClauses}, updated_at = NOW() WHERE id = $1`,
+      [req.user!.sub, ...userFields.map(k => userUpdates[k as keyof typeof userUpdates])]
+    );
+  }
+
+  // Update seller_profiles if seller + seller fields provided
+  if (req.user!.role === 'seller') {
+    const spUpdates: Record<string, unknown> = {};
+    if (business_name !== undefined) spUpdates.business_name = business_name;
+    if (business_type !== undefined) spUpdates.business_type = business_type;
+    if (gst_number !== undefined) spUpdates.gst_number = gst_number;
+    if (city !== undefined) spUpdates.city = city;
+    if (state !== undefined) spUpdates.state = state;
+    if (address_line1 !== undefined) spUpdates.address_line1 = address_line1;
+    if (pincode !== undefined) spUpdates.pincode = pincode;
+
+    if (Object.keys(spUpdates).length) {
+      const spFields = Object.keys(spUpdates).map((k, i) => `${k} = $${i + 2}`).join(', ');
+      await query(
+        `UPDATE seller_profiles SET ${spFields}, updated_at = NOW() WHERE user_id = $1`,
+        [req.user!.sub, ...Object.values(spUpdates)]
+      );
+    }
+  }
+
   res.json(successResponse({ message: 'Profile updated' }));
+});
+
+// ── PATCH /auth/password ─────────────────────────────────────
+profileRouter.patch('/password', async (req: Request, res: Response) => {
+  const schema = z.object({
+    current_password: z.string().min(1),
+    new_password: z.string().min(8, 'New password must be at least 8 characters'),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json(errorResponse(parsed.error.errors[0].message));
+    return;
+  }
+  const { current_password, new_password } = parsed.data;
+
+  const user = await queryOne<{ password_hash: string | null }>(
+    'SELECT password_hash FROM users WHERE id = $1',
+    [req.user!.sub]
+  );
+  if (!user?.password_hash) {
+    res.status(400).json(errorResponse('No password set — use forgot password to set one'));
+    return;
+  }
+
+  const valid = await bcrypt.compare(current_password, user.password_hash);
+  if (!valid) {
+    res.status(401).json(errorResponse('Current password is incorrect'));
+    return;
+  }
+
+  const new_hash = await bcrypt.hash(new_password, 10);
+  await query('UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2', [new_hash, req.user!.sub]);
+  res.json(successResponse({ message: 'Password changed successfully' }));
 });
 
 // ── GET /profile/addresses ────────────────────────────────────

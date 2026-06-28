@@ -10,6 +10,7 @@ export interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
+  badge?: number;
 }
 
 interface SidebarProps {
@@ -57,7 +58,16 @@ export default function Sidebar({ items, sub, footer, width = 236 }: SidebarProp
               }}
             >
               <Icon size={18} strokeWidth={active ? 2.2 : 1.8} />
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {item.badge && item.badge > 0 && (
+                <span style={{
+                  minWidth: 18, height: 18, borderRadius: 999, background: 'var(--nm-red)',
+                  color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', padding: '0 5px',
+                }}>
+                  {item.badge > 99 ? '99+' : item.badge}
+                </span>
+              )}
             </Link>
           );
         })}

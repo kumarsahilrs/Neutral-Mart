@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import { AppShell, Kpi, Badge, SectionCard, inr } from '@/components/ui';
 import api from '@/lib/api';
 import { isAuthenticated, getUser } from '@/lib/auth';
-import { SELLER_NAV, SELLER_BRAND_SUB, SellerSidebarFooter } from '../_nav';
+import { useSellerNav, SELLER_BRAND_SUB, SellerSidebarFooter } from '../_nav';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface RecentOrder {
@@ -69,6 +69,7 @@ export default function SellerDashboardPage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const user = getUser();
+  const sellerNav = useSellerNav();
 
   useEffect(() => { setReady(true); }, []);
 
@@ -101,7 +102,7 @@ export default function SellerDashboardPage() {
 
   return (
     <AppShell
-      navItems={SELLER_NAV}
+      navItems={sellerNav}
       brandSub={SELLER_BRAND_SUB}
       sidebarFooter={<SellerSidebarFooter />}
       title={`Good morning, ${name}`}
