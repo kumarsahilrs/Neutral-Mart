@@ -4,23 +4,12 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import {
-  Heart, Loader2, LayoutDashboard, ShoppingBag, Package, Gift, User,
-} from 'lucide-react';
+import { Heart, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell, ListingCard } from '@/components/ui';
-import { type NavItem } from '@/components/ui/Sidebar';
 import { inventoryApi, type Listing } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
-
-const NAV: NavItem[] = [
-  { label: 'Dashboard',   href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Browse lots', href: '/listings',  icon: ShoppingBag },
-  { label: 'Orders',      href: '/orders',    icon: Package },
-  { label: 'Watchlist',   href: '/watchlist', icon: Heart },
-  { label: 'Referral',    href: '/referral',  icon: Gift },
-  { label: 'Profile',     href: '/profile',   icon: User },
-];
+import { useBuyerNav, BUYER_SIDEBAR_FOOTER } from '@/lib/buyerNav';
 
 const sidebarFooter = (
   <div style={{ background: 'rgba(255,255,255,.07)', borderRadius: 12, padding: '12px 14px' }}>
@@ -32,6 +21,7 @@ type WatchlistListing = Listing & { price_dropped?: boolean; previous_price?: nu
 
 export default function WatchlistPage() {
   const router = useRouter();
+  const buyerNav = useBuyerNav();
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => { if (!isAuthenticated()) router.replace('/login'); }, [router]);
@@ -65,7 +55,7 @@ export default function WatchlistPage() {
 
   return (
     <AppShell
-      navItems={NAV} brandSub="Buyer Portal" sidebarFooter={sidebarFooter}
+      navItems={buyerNav} brandSub="Buyer Portal" sidebarFooter={BUYER_SIDEBAR_FOOTER}
       title={`${listings.length} saved lot${listings.length !== 1 ? 's' : ''}`}
       subtitle={priceDrops > 0 ? `${priceDrops} dropped price` : 'lots you are watching'}
       actions={<Link href="/listings" className="nm-btn-secondary no-underline" style={{ fontSize: 13, padding: '9px 14px' }}>Browse more</Link>}

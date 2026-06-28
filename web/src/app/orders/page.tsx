@@ -3,20 +3,11 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Package, ChevronRight, Search, LayoutDashboard, ShoppingBag, Heart, Gift, User, Loader2 } from 'lucide-react';
+import { Package, ChevronRight, Search, Loader2 } from 'lucide-react';
 import { AppShell, Badge, inr } from '@/components/ui';
-import { type NavItem } from '@/components/ui/Sidebar';
 import { ordersApi, type Order } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
-
-const NAV: NavItem[] = [
-  { label: 'Dashboard',   href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Browse lots', href: '/listings',  icon: ShoppingBag },
-  { label: 'Orders',      href: '/orders',    icon: Package },
-  { label: 'Watchlist',   href: '/watchlist', icon: Heart },
-  { label: 'Referral',    href: '/referral',  icon: Gift },
-  { label: 'Profile',     href: '/profile',   icon: User },
-];
+import { useBuyerNav, BUYER_SIDEBAR_FOOTER } from '@/lib/buyerNav';
 
 const TABS = [
   { label: 'All', value: '' },
@@ -39,6 +30,7 @@ function timeAgo(d: string) {
 
 export default function OrdersPage() {
   const router = useRouter();
+  const buyerNav = useBuyerNav();
   const [activeTab, setActiveTab] = useState('');
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
@@ -64,15 +56,9 @@ export default function OrdersPage() {
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const sidebarFooter = (
-    <div style={{ background: 'rgba(255,255,255,.07)', borderRadius: 12, padding: '12px 14px' }}>
-      <p style={{ fontSize: 11.5, color: 'rgba(255,255,255,.65)', margin: 0, lineHeight: 1.4 }}>🛡 Escrow protected — every order is held safe until you confirm delivery.</p>
-    </div>
-  );
-
   return (
     <AppShell
-      navItems={NAV} brandSub="Buyer Portal" sidebarFooter={sidebarFooter}
+      navItems={buyerNav} brandSub="Buyer Portal" sidebarFooter={BUYER_SIDEBAR_FOOTER}
       title="Orders"
       actions={
         <div className="flex items-center gap-3">

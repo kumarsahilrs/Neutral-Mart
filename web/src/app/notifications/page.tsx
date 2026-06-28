@@ -3,24 +3,12 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Bell, Loader2, CheckCheck, Package, AlertTriangle, Wallet,
-  LayoutDashboard, ShoppingBag, Heart, Gift, User,
-} from 'lucide-react';
+import { Bell, Loader2, CheckCheck, Package, AlertTriangle, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppShell } from '@/components/ui';
-import { type NavItem } from '@/components/ui/Sidebar';
 import { notificationsApi, type Notification } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
-
-const NAV: NavItem[] = [
-  { label: 'Dashboard',   href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Browse lots', href: '/listings',  icon: ShoppingBag },
-  { label: 'Orders',      href: '/orders',    icon: Package },
-  { label: 'Watchlist',   href: '/watchlist', icon: Heart },
-  { label: 'Referral',    href: '/referral',  icon: Gift },
-  { label: 'Profile',     href: '/profile',   icon: User },
-];
+import { useBuyerNav, BUYER_SIDEBAR_FOOTER } from '@/lib/buyerNav';
 
 const sidebarFooter = (
   <div style={{ background: 'rgba(255,255,255,.07)', borderRadius: 12, padding: '12px 14px' }}>
@@ -60,6 +48,7 @@ function timeAgo(dateStr: string): string {
 
 export default function NotificationsPage() {
   const router = useRouter();
+  const buyerNav = useBuyerNav();
   const queryClient = useQueryClient();
   const [activeType, setActiveType] = useState('');
   const [page, setPage] = useState(1);
@@ -130,7 +119,7 @@ export default function NotificationsPage() {
 
   return (
     <AppShell
-      navItems={NAV} brandSub="Buyer Portal" sidebarFooter={sidebarFooter}
+      navItems={buyerNav} brandSub="Buyer Portal" sidebarFooter={BUYER_SIDEBAR_FOOTER}
       title={unreadCount > 0 ? `${unreadCount} unread` : 'Notifications'}
       subtitle="platform alerts"
       actions={
