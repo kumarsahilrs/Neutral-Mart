@@ -146,8 +146,17 @@ export const inventoryApi = {
     description: string;
     asking_price: number;
     floor_price: number;
+    mrp: number;
     status: string;
     urgency_days: number;
+    dead_stock_type: string;
+    condition_grade: string;
+    lot_type: string;
+    moq: number;
+    unit: string;
+    price_type: string;
+    state: string;
+    city: string;
   }>) => api.patch<Listing>(`/inventory/listings/${id}`, data),
 
   deleteListing: (id: string) =>

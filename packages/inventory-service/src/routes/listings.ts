@@ -217,8 +217,10 @@ listingsRouter.patch(
       res.status(403).json(errorResponse('Not your listing')); return;
     }
 
-    const allowed = ['title', 'description', 'asking_price', 'floor_price', 'status',
-                     'urgency_days', 'images', 'sector_specific_fields'];
+    const allowed = ['title', 'description', 'asking_price', 'floor_price', 'mrp',
+                     'status', 'urgency_days', 'images', 'dead_stock_type',
+                     'condition_grade', 'lot_type', 'moq', 'unit', 'price_type',
+                     'state', 'city'];
     const updates = Object.fromEntries(
       Object.entries(req.body).filter(([k]) => allowed.includes(k))
     );

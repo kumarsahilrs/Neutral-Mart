@@ -141,10 +141,17 @@ export default function InventoryPage() {
                   <td><AgeCell days={Number(r.days_listed ?? r.daysListed ?? 0)} /></td>
                   <td>
                     <div className="flex items-center gap-1">
-                      <button onClick={() => inventoryApi.featureListing(String(r.id)).then(() => refetch())}
+                      <button onClick={() => inventoryApi.featureListing(String(r.id)).then(() => refetch()).catch(() => toast.error('Failed'))}
                         className="nm-btn-soft" style={{ padding: '4px 8px', fontSize: 11 }}>Feature</button>
-                      <button onClick={() => inventoryApi.pauseListing(String(r.id)).then(() => refetch())}
-                        className="nm-btn-secondary" style={{ padding: '4px 8px', fontSize: 11 }}>Pause</button>
+                      <button onClick={() => {
+                        const action = String(r.status) === 'paused' ? inventoryApi.unfeatureListing : inventoryApi.pauseListing;
+                        action(String(r.id)).then(() => refetch()).catch(() => toast.error('Failed'));
+                      }}
+                        className="nm-btn-secondary" style={{ padding: '4px 8px', fontSize: 11 }}>
+                        {String(r.status) === 'paused' ? 'Unpause' : 'Pause'}
+                      </button>
+                      <button onClick={() => { if (confirm('Delist this listing?')) inventoryApi.delistListing(String(r.id)).then(() => refetch()).catch(() => toast.error('Failed')); }}
+                        className="nm-btn-secondary" style={{ padding: '4px 8px', fontSize: 11, color: 'var(--nm-red)', borderColor: 'var(--nm-red)' }}>Delist</button>
                     </div>
                   </td>
                 </tr>
