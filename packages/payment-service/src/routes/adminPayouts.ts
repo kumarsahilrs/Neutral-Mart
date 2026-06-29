@@ -33,7 +33,7 @@ adminPayoutsRouter.get('/', authenticate, requireAdmin as never, async (req: Req
     status ? [status] : []
   );
 
-  res.json(successResponse({ data: rows, total: parseInt(count, 10), page, limit }));
+  res.json(successResponse({ rows, total: parseInt(count, 10), page, limit }));
 });
 
 // GET /admin/payouts/stats

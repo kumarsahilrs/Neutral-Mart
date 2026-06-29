@@ -13,11 +13,17 @@ adminAuditLogRouter.get('/', authenticate, requireAdmin as never, async (req: Re
   const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? '50'), 10)));
   const offset = (page - 1) * limit;
 
+  // Build filter params separately for reuse in both list + count queries
+  const filterParams: (string | number)[] = [];
   const conditions: string[] = [];
-  const params: (string | number)[] = [limit, offset];
-  if (adminId) { conditions.push(`al.user_id = $${params.push(adminId)}`); }
-  if (entityType) { conditions.push(`al.entity_type = $${params.push(entityType)}`); }
+  if (adminId) { conditions.push(`al.user_id = $${filterParams.push(adminId)}`); }
+  if (entityType) { conditions.push(`al.entity_type = $${filterParams.push(entityType)}`); }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  // List query — filter params first, then limit/offset
+  const listParams = [...filterParams, limit, offset];
+  const limitIdx = filterParams.length + 1;
+  const offsetIdx = filterParams.length + 2;
 
   const rows = await query(
     `SELECT al.*, u.name AS admin_name, u.email AS admin_email
@@ -25,16 +31,16 @@ adminAuditLogRouter.get('/', authenticate, requireAdmin as never, async (req: Re
      LEFT JOIN users u ON u.id = al.user_id
      ${where}
      ORDER BY al.created_at DESC
-     LIMIT $1 OFFSET $2`,
-    params
+     LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+    listParams
   );
 
   const [{ count }] = await query<{ count: string }>(
-    `SELECT COUNT(*) FROM audit_logs ${where ? where.replace(/\$(\d+)/g, (_, n) => `$${n}`) : ''}`,
-    conditions.length ? params.slice(2) : []
+    `SELECT COUNT(*) FROM audit_logs al ${where}`,
+    filterParams
   );
 
-  res.json(successResponse({ data: rows, total: parseInt(count, 10), page, limit }));
+  res.json(successResponse({ rows, total: parseInt(count, 10), page, limit }));
 });
 
 // GET /admin/audit-log/admins
